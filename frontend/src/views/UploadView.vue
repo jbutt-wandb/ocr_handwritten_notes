@@ -2,12 +2,14 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotesStore } from '../stores/notes'
+import { useConfigStore } from '../stores/config'
 import { processSingleImage } from '../services/api'
 import DropZone from '../components/DropZone.vue'
 import ImagePreview from '../components/ImagePreview.vue'
 
 const router = useRouter()
 const notesStore = useNotesStore()
+const configStore = useConfigStore()
 const showNoImagesMessage = ref(false)
 const customInstructions = ref('')
 const showCustomInstructions = ref(false)
@@ -28,8 +30,8 @@ async function handleSubmit() {
     return
   }
 
-  console.log('=== Starting OCR Processing ===')
-  console.log(`Processing ${notesStore.images.length} image(s)`)
+  console.log('=== Starting OCR Processing (Parallel) ===')
+  console.log(`Processing ${notesStore.images.length} image(s) in parallel`)
   console.log(`Options: LaTeX=${notesStore.options.containsLatex}, Diagrams=${notesStore.options.containsDiagrams}`)
   if (customInstructions.value) {
     console.log(`Custom instructions: ${customInstructions.value.substring(0, 100)}...`)
@@ -43,27 +45,53 @@ async function handleSubmit() {
     customInstructions: customInstructions.value
   }
 
-  const allResults = []
-
   try {
-    for (let i = 0; i < notesStore.images.length; i++) {
-      const image = notesStore.images[i]
-      notesStore.setCurrentImageIndex(i + 1)
-      console.log(`Processing image ${i + 1} of ${notesStore.images.length}: ${image.filename}`)
+    // Launch all API calls in parallel
+    const promises = notesStore.images.map((image, index) =>
+      processSingleImage(image, options)
+        .then(response => ({ status: 'fulfilled', value: response, image, index }))
+        .catch(error => ({ status: 'rejected', reason: error, image, index }))
+    )
 
-      const response = await processSingleImage(image, options)
+    const results = await Promise.all(promises)
 
-      if (response.success && response.results.length > 0) {
+    const allResults = []
+    const failures = []
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value.success && result.value.results.length > 0) {
         allResults.push({
-          ...response.results[0],
-          preview: image.preview
+          ...result.value.results[0],
+          preview: result.image.preview
         })
       } else {
-        throw new Error(response.error || `Failed to process image ${i + 1}`)
+        const filename = result.image.filename || `Image ${result.index + 1}`
+        const errMsg = result.reason?.message || result.value?.error || 'Unknown error'
+        failures.push({ filename, errMsg })
       }
+    })
+
+    console.log(`Processing complete. ${allResults.length} succeeded, ${failures.length} failed.`)
+    if (failures.length > 0) {
+      console.error('Failures:', failures)
     }
 
-    console.log(`Processing complete. Processed ${allResults.length} images.`)
+    if (failures.length > 0) {
+      const grouped = new Map()
+      for (const { filename, errMsg } of failures) {
+        if (!grouped.has(errMsg)) grouped.set(errMsg, [])
+        grouped.get(errMsg).push(filename)
+      }
+      const summary = [...grouped.entries()]
+        .map(([msg, files]) => `${files.join(', ')}: ${msg}`)
+        .join('\n')
+      notesStore.setError(summary)
+    }
+
+    if (allResults.length === 0) {
+      return
+    }
+
     notesStore.setResults(allResults)
     router.push('/editor')
   } catch (err) {
@@ -93,7 +121,7 @@ function loadTestData() {
         <path style="opacity: 0.75;" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
       </svg>
       <p style="margin-top: 16px; font-size: 18px; font-weight: 500; color: var(--color-text-primary);">
-        Processing image {{ notesStore.currentImageIndex }} of {{ notesStore.images.length }}
+        Processing {{ notesStore.images.length }} image{{ notesStore.images.length > 1 ? 's' : '' }}...
       </p>
     </div>
 
@@ -189,10 +217,11 @@ function loadTestData() {
     </div>
 
     <!-- Submit Button -->
-    <div style="display: flex; justify-content: flex-end;">
+    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
       <button
         @click="handleSubmit"
-        :disabled="notesStore.isProcessing"
+        :disabled="notesStore.isProcessing || !configStore.openaiConfigured"
+        :title="!configStore.openaiConfigured ? 'Add an OpenAI key via the gear icon to enable conversion' : ''"
         :style="{
           padding: '10px 24px',
           fontSize: '15px',
@@ -201,14 +230,26 @@ function loadTestData() {
           backgroundColor: 'var(--color-accent)',
           border: 'none',
           borderRadius: '24px',
-          cursor: notesStore.isProcessing ? 'not-allowed' : 'pointer',
-          opacity: notesStore.isProcessing ? '0.5' : '1'
+          cursor: (notesStore.isProcessing || !configStore.openaiConfigured) ? 'not-allowed' : 'pointer',
+          opacity: (notesStore.isProcessing || !configStore.openaiConfigured) ? '0.5' : '1'
         }"
-        @mouseenter="!notesStore.isProcessing && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
+        @mouseenter="(!notesStore.isProcessing && configStore.openaiConfigured) && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
         @mouseleave="$event.target.style.backgroundColor = 'var(--color-accent)'"
       >
         Convert to Markdown
       </button>
+      <p
+        v-if="!configStore.openaiConfigured"
+        style="font-size: 13px; color: var(--color-text-muted); margin: 0;"
+      >
+        Add your OpenAI API key via the
+        <button
+          type="button"
+          @click="configStore.openModal('edit')"
+          style="background: transparent; border: none; padding: 0; color: var(--color-accent); cursor: pointer; font-size: 13px; text-decoration: underline;"
+        >gear icon</button>
+        to enable conversion.
+      </p>
     </div>
 
     <!-- No images message -->
@@ -222,7 +263,7 @@ function loadTestData() {
     <!-- Error Message -->
     <div
       v-if="notesStore.error"
-      style="margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 14px; background-color: rgba(239, 68, 68, 0.1); color: #f87171;"
+      style="margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 14px; background-color: rgba(239, 68, 68, 0.1); color: #f87171; white-space: pre-wrap;"
     >
       {{ notesStore.error }}
     </div>

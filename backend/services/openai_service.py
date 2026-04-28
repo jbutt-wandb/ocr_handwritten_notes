@@ -1,7 +1,7 @@
-import base64
 import re
 
-from openai import OpenAI
+import weave
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from backend.prompts.ocr_prompts import build_ocr_prompt
@@ -14,21 +14,21 @@ class OCROutput(BaseModel):
 
 class OpenAIService:
     def __init__(self, api_key: str):
-        self.client = OpenAI(api_key=api_key)
+        self.client = AsyncOpenAI(api_key=api_key, timeout=60.0)
 
-    def process_image(
+    @weave.op
+    async def process_image(
         self,
-        image_bytes: bytes,
+        image_base64: str,
         mime_type: str,
         contains_latex: bool,
         contains_diagrams: bool,
         custom_instructions: str = "",
     ) -> str:
         """Process a single image with OpenAI Vision API using structured output."""
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
         prompt = build_ocr_prompt(contains_latex, contains_diagrams, custom_instructions)
 
-        response = self.client.beta.chat.completions.parse(
+        response = await self.client.beta.chat.completions.parse(
             model="gpt-4o",
             messages=[
                 {
@@ -38,7 +38,7 @@ class OpenAIService:
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:{mime_type};base64,{base64_image}",
+                                "url": f"data:{mime_type};base64,{image_base64}",
                                 "detail": "high",
                             },
                         },

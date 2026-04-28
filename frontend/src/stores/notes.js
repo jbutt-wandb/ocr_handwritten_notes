@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { sampleMarkdown, placeholderImage } from '../fixtures/testData'
+import { sampleMarkdown, sampleImage, sampleFilename } from '../fixtures/testData'
 
 const MAX_IMAGES = 5
 
@@ -96,9 +96,9 @@ export const useNotesStore = defineStore('notes', () => {
 
   function loadTestData() {
     results.value = [{
-      filename: 'test-image.png',
+      filename: sampleFilename,
       markdown: sampleMarkdown,
-      preview: placeholderImage
+      preview: sampleImage
     }]
   }
 
