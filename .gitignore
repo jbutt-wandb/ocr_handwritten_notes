@@ -12,8 +12,6 @@ wheels/
 # Secrets / credentials
 .env
 .env.local
-.likho_config.json
-.likho_config.json.tmp
 
 # Node
 node_modules/

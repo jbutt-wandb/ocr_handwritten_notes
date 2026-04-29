@@ -10,7 +10,7 @@ const configStore = useConfigStore()
 onMounted(async () => {
   try {
     await configStore.fetchStatus()
-    if (!configStore.openaiConfigured) {
+    if (!configStore.inferenceReady) {
       configStore.openModal('firstRun')
     }
   } catch (err) {

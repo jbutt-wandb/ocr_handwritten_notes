@@ -1,10 +1,15 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
 from backend.services.credentials import store
+from backend.services.inference_service import (
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
+    resolve_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +17,6 @@ router = APIRouter(prefix="/config", tags=["Config"])
 
 
 class ConfigStatus(BaseModel):
-    openai_configured: bool
-    openai_preview: Optional[str] = None
-    openai_source: str
     wandb_configured: bool
     wandb_preview: Optional[str] = None
     wandb_source: str
@@ -22,13 +24,17 @@ class ConfigStatus(BaseModel):
     weave_entity_source: str
     weave_project: Optional[str] = None
     weave_project_source: str
+    inference_ready: bool
+    model: str
+    model_source: str
+    available_models: dict[str, str]
 
 
 class ConfigUpdate(BaseModel):
-    openai_api_key: Optional[str] = None
     wandb_api_key: Optional[str] = None
     weave_entity: Optional[str] = None
     weave_project: Optional[str] = None
+    model: Optional[str] = None
 
 
 class ConfigSaveResponse(BaseModel):
@@ -41,8 +47,6 @@ def _mask(secret: Optional[str]) -> Optional[str]:
         return None
     if len(secret) <= 4:
         return "..." + secret
-    if secret.startswith("sk-"):
-        return f"sk-...{secret[-4:]}"
     return f"...{secret[-4:]}"
 
 
@@ -50,9 +54,6 @@ def _build_status() -> ConfigStatus:
     creds = store.get()
     sources = store.sources()
     return ConfigStatus(
-        openai_configured=bool(creds.openai_api_key),
-        openai_preview=_mask(creds.openai_api_key),
-        openai_source=sources["openai_api_key"],
         wandb_configured=bool(creds.wandb_api_key),
         wandb_preview=_mask(creds.wandb_api_key),
         wandb_source=sources["wandb_api_key"],
@@ -60,6 +61,10 @@ def _build_status() -> ConfigStatus:
         weave_entity_source=sources["weave_entity"],
         weave_project=creds.weave_project,
         weave_project_source=sources["weave_project"],
+        inference_ready=store.has_inference(),
+        model=resolve_model(creds.model),
+        model_source=sources["model"],
+        available_models=AVAILABLE_MODELS,
     )
 
 
@@ -74,7 +79,15 @@ async def get_status(response: Response) -> ConfigStatus:
 async def save_config(payload: ConfigUpdate, response: Response) -> ConfigSaveResponse:
     response.headers["Cache-Control"] = "no-store"
 
-    # No upfront key validation — OCR calls surface OpenAI's error directly.
+    if payload.model is not None and payload.model not in AVAILABLE_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_model",
+                "message": f"Unknown model '{payload.model}'. Allowed: {list(AVAILABLE_MODELS)}",
+            },
+        )
+
     payload_dict = payload.model_dump(exclude_none=True)
     store.save(payload_dict)
 

@@ -11,4 +11,5 @@ dependencies = [
     "openai>=1.50.0",
     "pydantic-settings>=2.5.0",
     "weave>=0.52.37",
+    "pillow>=10.0.0",
 ]

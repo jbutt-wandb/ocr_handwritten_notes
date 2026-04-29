@@ -11,8 +11,8 @@ export const useConfigStore = defineStore('config', () => {
   const lastError = ref(null)
   const lastWeaveWarning = ref(null)
 
-  const openaiConfigured = computed(() => !!status.value?.openai_configured)
   const wandbConfigured = computed(() => !!status.value?.wandb_configured)
+  const inferenceReady = computed(() => !!status.value?.inference_ready)
 
   async function fetchStatus() {
     isLoading.value = true
@@ -67,8 +67,8 @@ export const useConfigStore = defineStore('config', () => {
     skipped,
     lastError,
     lastWeaveWarning,
-    openaiConfigured,
     wandbConfigured,
+    inferenceReady,
     fetchStatus,
     save,
     openModal,

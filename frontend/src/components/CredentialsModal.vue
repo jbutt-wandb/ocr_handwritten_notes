@@ -4,11 +4,10 @@ import { useConfigStore } from '../stores/config'
 
 const configStore = useConfigStore()
 
-const openaiKey = ref('')
 const wandbKey = ref('')
 const entity = ref('')
 const project = ref('')
-const showOpenai = ref(false)
+const selectedModel = ref('')
 const showWandb = ref(false)
 const localError = ref(null)
 
@@ -19,27 +18,16 @@ watch(
   () => configStore.isModalOpen,
   (open) => {
     if (open) {
-      openaiKey.value = ''
       wandbKey.value = ''
       entity.value = status.value?.weave_entity || ''
       project.value = status.value?.weave_project || ''
-      showOpenai.value = false
+      selectedModel.value = status.value?.model || ''
       showWandb.value = false
       localError.value = null
     }
   }
 )
 
-const wandbFieldsAnyFilled = computed(
-  () => !!(wandbKey.value || entity.value || project.value)
-)
-const wandbFieldsAllFilled = computed(
-  () => !!(wandbKey.value && entity.value && project.value)
-)
-
-const openaiPlaceholder = computed(() =>
-  status.value?.openai_preview ? `current: ${status.value.openai_preview}` : 'sk-...'
-)
 const wandbPlaceholder = computed(() =>
   status.value?.wandb_preview ? `current: ${status.value.wandb_preview}` : 'WANDB_API_KEY'
 )
@@ -47,20 +35,22 @@ const wandbPlaceholder = computed(() =>
 async function handleSave() {
   localError.value = null
 
-  if (!status.value?.openai_configured && !openaiKey.value.trim()) {
-    localError.value = 'OpenAI API key is required'
-    return
-  }
-  if (wandbFieldsAnyFilled.value && !wandbFieldsAllFilled.value) {
-    localError.value = 'For W&B tracing, fill in API key, entity, and project (or leave all three blank)'
+  const haveKey = !!wandbKey.value.trim() || !!status.value?.wandb_configured
+  const haveEntity = !!entity.value.trim()
+  const haveProject = !!project.value.trim()
+
+  if (!haveKey || !haveEntity || !haveProject) {
+    localError.value = 'W&B API key, entity, and project are all required.'
     return
   }
 
   const payload = {}
-  if (openaiKey.value.trim()) payload.openai_api_key = openaiKey.value.trim()
   if (wandbKey.value.trim()) payload.wandb_api_key = wandbKey.value.trim()
   if (entity.value.trim()) payload.weave_entity = entity.value.trim()
   if (project.value.trim()) payload.weave_project = project.value.trim()
+  if (selectedModel.value && selectedModel.value !== status.value?.model) {
+    payload.model = selectedModel.value
+  }
 
   if (Object.keys(payload).length === 0) {
     configStore.closeModal()
@@ -71,7 +61,6 @@ async function handleSave() {
     await configStore.save(payload)
     configStore.closeModal()
   } catch (err) {
-    // error already in store; localError mirrors for visibility
     localError.value = configStore.lastError || err.message
   }
 }
@@ -108,49 +97,38 @@ function handleCancel() {
         </button>
       </div>
       <p style="font-size: 14px; color: var(--color-text-muted); margin: 0 0 20px 0; line-height: 1.5;">
-        {{ isFirstRun
-          ? 'Add your API keys to enable OCR. Stored locally in .likho_config.json.'
-          : 'Update API keys. Existing values stay unless you enter new ones.' }}
+        Likho uses W&amp;B Inference for OCR. Your W&amp;B API key authenticates the model call and the entity/project enables Weave tracing. Values are written to your local <code style="font-family: ui-monospace, monospace;">.env</code> file (gitignored).
       </p>
 
-      <!-- OpenAI -->
+      <!-- Model selector -->
       <div style="margin-bottom: 18px;">
         <label style="display: block; font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">
-          OpenAI API Key <span style="color: #f87171;">*</span>
-          <span v-if="status?.openai_configured" style="font-weight: 400; color: var(--color-text-muted); margin-left: 6px;">
-            ({{ status.openai_preview }} from {{ status.openai_source }})
+          Vision Model
+          <span v-if="status?.model_source && status.model_source !== 'none'" style="font-weight: 400; color: var(--color-text-muted); margin-left: 6px;">
+            (from {{ status.model_source }})
           </span>
         </label>
-        <div style="display: flex; gap: 8px;">
-          <input
-            :type="showOpenai ? 'text' : 'password'"
-            v-model="openaiKey"
-            :placeholder="openaiPlaceholder"
-            autocomplete="off"
-            spellcheck="false"
-            style="flex: 1; padding: 10px 12px; font-size: 14px; font-family: ui-monospace, monospace; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none;"
-          />
-          <button
-            type="button"
-            @click="showOpenai = !showOpenai"
-            style="padding: 0 12px; font-size: 12px; background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer;"
+        <select
+          v-model="selectedModel"
+          style="width: 100%; padding: 10px 12px; font-size: 14px; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none; box-sizing: border-box; cursor: pointer;"
+        >
+          <option
+            v-for="(label, id) in (status?.available_models || {})"
+            :key="id"
+            :value="id"
           >
-            {{ showOpenai ? 'Hide' : 'Show' }}
-          </button>
-        </div>
+            {{ label }}
+          </option>
+        </select>
+        <p style="font-size: 12px; color: var(--color-text-muted); margin: 6px 0 0 0;">
+          Kimi is fastest. Gemma and Qwen may be more accurate on dense pages.
+        </p>
       </div>
 
       <!-- W&B section -->
-      <div style="margin-top: 24px; padding-top: 18px; border-top: 1px dashed var(--color-border);">
-        <p style="font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin: 0 0 4px 0;">
-          Weights & Biases (optional)
-        </p>
-        <p style="font-size: 12px; color: var(--color-text-muted); margin: 0 0 14px 0;">
-          Adds Weave tracing for OCR calls. Provide all three or leave all blank.
-        </p>
-
-        <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">
-          W&B API Key
+      <div>
+        <label style="display: block; font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">
+          W&amp;B API Key <span style="color: #f87171;">*</span>
           <span v-if="status?.wandb_configured" style="font-weight: 400; color: var(--color-text-muted); margin-left: 6px;">
             ({{ status.wandb_preview }} from {{ status.wandb_source }})
           </span>
@@ -173,7 +151,9 @@ function handleCancel() {
           </button>
         </div>
 
-        <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">Entity</label>
+        <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">
+          Entity <span style="color: #f87171;">*</span>
+        </label>
         <input
           v-model="entity"
           placeholder="your-wandb-entity"
@@ -181,7 +161,9 @@ function handleCancel() {
           style="width: 100%; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none; box-sizing: border-box;"
         />
 
-        <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">Project</label>
+        <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">
+          Project <span style="color: #f87171;">*</span>
+        </label>
         <input
           v-model="project"
           placeholder="likho"

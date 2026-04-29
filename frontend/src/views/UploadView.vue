@@ -220,8 +220,8 @@ function loadTestData() {
     <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
       <button
         @click="handleSubmit"
-        :disabled="notesStore.isProcessing || !configStore.openaiConfigured"
-        :title="!configStore.openaiConfigured ? 'Add an OpenAI key via the gear icon to enable conversion' : ''"
+        :disabled="notesStore.isProcessing || !configStore.inferenceReady"
+        :title="!configStore.inferenceReady ? 'Add your W&B credentials via the gear icon to enable conversion' : ''"
         :style="{
           padding: '10px 24px',
           fontSize: '15px',
@@ -230,19 +230,19 @@ function loadTestData() {
           backgroundColor: 'var(--color-accent)',
           border: 'none',
           borderRadius: '24px',
-          cursor: (notesStore.isProcessing || !configStore.openaiConfigured) ? 'not-allowed' : 'pointer',
-          opacity: (notesStore.isProcessing || !configStore.openaiConfigured) ? '0.5' : '1'
+          cursor: (notesStore.isProcessing || !configStore.inferenceReady) ? 'not-allowed' : 'pointer',
+          opacity: (notesStore.isProcessing || !configStore.inferenceReady) ? '0.5' : '1'
         }"
-        @mouseenter="(!notesStore.isProcessing && configStore.openaiConfigured) && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
+        @mouseenter="(!notesStore.isProcessing && configStore.inferenceReady) && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
         @mouseleave="$event.target.style.backgroundColor = 'var(--color-accent)'"
       >
         Convert to Markdown
       </button>
       <p
-        v-if="!configStore.openaiConfigured"
+        v-if="!configStore.inferenceReady"
         style="font-size: 13px; color: var(--color-text-muted); margin: 0;"
       >
-        Add your OpenAI API key via the
+        Add your W&amp;B API key, entity, and project via the
         <button
           type="button"
           @click="configStore.openModal('edit')"
