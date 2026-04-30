@@ -12,6 +12,29 @@ const notesStore = useNotesStore()
 const viewMode = ref('editor')
 const editorContent = ref('')
 const documentTitle = ref('Untitled Document')
+const editorRef = ref(null)
+const previewRef = ref(null)
+
+function scrollRatio(el) {
+  const range = el.scrollHeight - el.clientHeight
+  return range > 0 ? el.scrollTop / range : 0
+}
+
+function applyScrollRatio(el, ratio) {
+  const range = el.scrollHeight - el.clientHeight
+  el.scrollTop = Math.max(0, Math.min(1, ratio)) * range
+}
+
+function setViewMode(mode) {
+  if (mode === viewMode.value) return
+  const outEl = viewMode.value === 'editor' ? editorRef.value : previewRef.value
+  const ratio = outEl ? scrollRatio(outEl) : 0
+  viewMode.value = mode
+  nextTick(() => {
+    const inEl = mode === 'editor' ? editorRef.value : previewRef.value
+    if (inEl) applyScrollRatio(inEl, ratio)
+  })
+}
 
 // Add Image Modal state
 const showAddModal = ref(false)
@@ -102,19 +125,37 @@ function handleTab(event) {
 }
 
 // Add Image Modal functions
-function handleAddFiles(files) {
-  files.forEach(file => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      addImages.value.push({
+const ADD_MAX_IMAGES = 5
+
+async function handleAddFiles(files) {
+  const remaining = ADD_MAX_IMAGES - addImages.value.length
+  if (remaining <= 0) {
+    addError.value = `You can only upload ${ADD_MAX_IMAGES} images at a time. Process this batch, then add more.`
+    return
+  }
+  const toAdd = files.slice(0, remaining)
+  const dropped = files.length - toAdd.length
+
+  const entries = await Promise.all(
+    toAdd.map(file => new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => resolve({
         id: crypto.randomUUID(),
-        file: file,
+        file,
         preview: e.target.result,
         filename: file.name
       })
-    }
-    reader.readAsDataURL(file)
-  })
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    }))
+  )
+  addImages.value.push(...entries)
+
+  if (dropped > 0) {
+    addError.value = `Limit is ${ADD_MAX_IMAGES} per batch — skipped ${dropped} ${dropped === 1 ? 'file' : 'files'}.`
+  } else {
+    addError.value = null
+  }
 }
 
 function removeAddImage(id) {
@@ -192,7 +233,7 @@ function closeAddModal() {
 
       <div style="display: flex; align-items: center; gap: 4px; background-color: var(--color-bg); border-radius: 8px; padding: 4px;">
         <button
-          @click="viewMode = 'editor'"
+          @click="setViewMode('editor')"
           :style="{
             padding: '8px 16px',
             fontSize: '14px',
@@ -206,7 +247,7 @@ function closeAddModal() {
           Editor
         </button>
         <button
-          @click="viewMode = 'preview'"
+          @click="setViewMode('preview')"
           :style="{
             padding: '8px 16px',
             fontSize: '14px',
@@ -245,7 +286,8 @@ function closeAddModal() {
       </div>
 
       <!-- Right: Editor or Preview -->
-      <div style="flex: 1; display: flex; flex-direction: column; padding: 16px; gap: 12px; overflow: hidden;">
+      <div style="flex: 1; display: flex; flex-direction: column; padding: 16px 16px; overflow: hidden; min-width: 0;">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 12px; max-width: 1700px; width: 100%; min-height: 0; margin: 0 auto;">
         <!-- Document Title Input (always visible) -->
         <div>
           <label style="display: block; font-size: 12px; font-weight: 500; color: var(--color-text-muted); margin-bottom: 6px;">
@@ -255,26 +297,29 @@ function closeAddModal() {
             v-model="documentTitle"
             type="text"
             placeholder="Enter document title..."
-            style="width: 100%; padding: 10px 14px; font-size: 16px; font-weight: 500; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; outline: none;"
+            style="width: 100%; padding: 10px 14px; font-size: 16px; font-weight: 500; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; outline: none; box-sizing: border-box;"
           />
         </div>
 
         <!-- Editor Mode -->
         <textarea
-          v-if="viewMode === 'editor'"
+          v-show="viewMode === 'editor'"
+          ref="editorRef"
           v-model="editorContent"
           @keydown="handleTab"
-          style="flex: 1; width: 100%; padding: 16px; font-family: ui-monospace, monospace; font-size: 14px; line-height: 1.6; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; resize: none; outline: none;"
+          style="flex: 1; width: 100%; padding: 16px; font-family: ui-monospace, monospace; font-size: 14px; line-height: 1.6; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; resize: none; outline: none; box-sizing: border-box;"
           placeholder="Markdown content..."
         ></textarea>
 
         <!-- Preview Mode -->
         <div
-          v-else
-          style="flex: 1; overflow-y: auto; padding: 16px; background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px;"
-          class="prose prose-invert"
+          v-show="viewMode === 'preview'"
+          ref="previewRef"
+          class="markdown-preview"
+          style="flex: 1; overflow-y: auto; padding: 16px 20px; background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary); line-height: 1.65; box-sizing: border-box;"
           v-html="renderedPreview"
         ></div>
+        </div>
       </div>
     </div>
 
@@ -305,15 +350,23 @@ function closeAddModal() {
           >&times;</button>
         </div>
 
-        <!-- Drop Zone -->
-        <div style="margin-bottom: 16px;">
+        <!-- Drop Zone (hidden at capacity) -->
+        <div v-if="addImages.length < 5" style="margin-bottom: 16px;">
           <DropZone @files-selected="handleAddFiles" />
+        </div>
+        <div
+          v-else
+          style="margin-bottom: 16px; padding: 12px; border-radius: 8px; text-align: center; background-color: var(--color-bg); border: 1px solid var(--color-border);"
+        >
+          <p style="margin: 0; font-size: 13px; color: var(--color-text-muted);">
+            Maximum of 5 images reached. Remove one to add more.
+          </p>
         </div>
 
         <!-- Preview added images -->
         <div v-if="addImages.length > 0" style="margin-bottom: 16px;">
           <p style="font-size: 14px; color: var(--color-text-muted); margin-bottom: 8px;">
-            {{ addImages.length }} image(s) selected
+            {{ addImages.length }}/5 selected
           </p>
           <div style="display: flex; flex-wrap: wrap; gap: 8px;">
             <div
@@ -388,36 +441,95 @@ function closeAddModal() {
 </template>
 
 <style>
-.prose {
-  color: var(--color-text-primary);
-  line-height: 1.7;
-}
-.prose h1, .prose h2, .prose h3, .prose h4 {
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
   color: var(--color-text-primary);
   margin-top: 1.5em;
   margin-bottom: 0.5em;
+  font-weight: 600;
 }
-.prose h1 { font-size: 2em; font-weight: 700; }
-.prose h2 { font-size: 1.5em; font-weight: 600; }
-.prose h3 { font-size: 1.25em; font-weight: 600; }
-.prose p { margin: 1em 0; }
-.prose ul, .prose ol { margin: 1em 0; padding-left: 1.5em; }
-.prose li { margin: 0.25em 0; }
-.prose code {
-  background-color: var(--color-bg);
-  padding: 0.2em 0.4em;
+.markdown-preview h1 { font-size: 2em; font-weight: 700; border-bottom: 1px solid var(--color-border); padding-bottom: 0.3em; }
+.markdown-preview h2 { font-size: 1.5em; border-bottom: 1px solid var(--color-border); padding-bottom: 0.2em; }
+.markdown-preview h3 { font-size: 1.25em; }
+.markdown-preview h4 { font-size: 1.05em; }
+.markdown-preview p { margin: 0.75em 0; }
+.markdown-preview ul,
+.markdown-preview ol { margin: 0.75em 0; padding-left: 1.5em; }
+.markdown-preview li { margin: 0.25em 0; }
+.markdown-preview li > ul,
+.markdown-preview li > ol { margin: 0.25em 0; }
+.markdown-preview a { color: var(--color-accent); text-decoration: underline; }
+.markdown-preview a:hover { color: var(--color-accent-hover); }
+.markdown-preview strong { color: var(--color-text-primary); font-weight: 700; }
+.markdown-preview em { font-style: italic; }
+.markdown-preview code {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  padding: 0.15em 0.4em;
   border-radius: 4px;
   font-size: 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.prose pre {
-  background-color: var(--color-bg);
-  padding: 1em;
+.markdown-preview pre {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  padding: 12px 14px;
   border-radius: 8px;
   overflow-x: auto;
+  margin: 1em 0;
 }
-.prose hr {
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.875em;
+}
+.markdown-preview blockquote {
+  margin: 1em 0;
+  padding: 0.25em 1em;
+  color: var(--color-text-secondary);
+  border-left: 3px solid var(--color-accent);
+  background-color: var(--color-surface);
+  border-radius: 0 6px 6px 0;
+}
+.markdown-preview hr {
   border: none;
   border-top: 1px solid var(--color-border);
   margin: 2em 0;
+}
+.markdown-preview table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+  font-size: 0.95em;
+  display: block;
+  overflow-x: auto;
+}
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid var(--color-border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-preview th {
+  background-color: var(--color-surface);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.markdown-preview tr:nth-child(even) td {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+.light .markdown-preview tr:nth-child(even) td {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+.markdown-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
 }
 </style>

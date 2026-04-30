@@ -21,26 +21,32 @@ export const useNotesStore = defineStore('notes', () => {
       .join('\n\n---\n\n')
   })
 
-  function addImages(files) {
+  async function addImages(files) {
     const remainingSlots = MAX_IMAGES - images.value.length
     const filesToAdd = files.slice(0, remainingSlots)
 
-    filesToAdd.forEach(file => {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        if (images.value.length < MAX_IMAGES) {
-          images.value.push({
-            id: crypto.randomUUID(),
-            file: file,
-            preview: e.target.result,
-            filename: file.name
-          })
-        }
-      }
-      reader.readAsDataURL(file)
-    })
+    const entries = await Promise.all(
+      filesToAdd.map(file => new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = (e) => resolve({
+          id: crypto.randomUUID(),
+          file,
+          preview: e.target.result,
+          filename: file.name
+        })
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+      }))
+    )
+
+    const available = MAX_IMAGES - images.value.length
+    images.value.push(...entries.slice(0, available))
 
     return files.length > remainingSlots
+  }
+
+  function setImages(newOrder) {
+    images.value = newOrder
   }
 
   function canAddMore() {
@@ -111,6 +117,7 @@ export const useNotesStore = defineStore('notes', () => {
     error,
     combinedMarkdown,
     addImages,
+    setImages,
     removeImage,
     clearImages,
     updateMarkdown,

@@ -12,4 +12,5 @@ dependencies = [
     "pydantic-settings>=2.5.0",
     "weave>=0.52.37",
     "pillow>=10.0.0",
+    "llm-guard>=0.3.0",
 ]

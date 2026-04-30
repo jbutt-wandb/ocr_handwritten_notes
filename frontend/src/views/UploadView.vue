@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useNotesStore } from '../stores/notes'
 import { useConfigStore } from '../stores/config'
 import { processSingleImage } from '../services/api'
+import draggable from 'vuedraggable'
 import DropZone from '../components/DropZone.vue'
 import ImagePreview from '../components/ImagePreview.vue'
 
@@ -167,14 +168,19 @@ function loadTestData() {
           Clear all
         </button>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
-        <ImagePreview
-          v-for="image in notesStore.images"
-          :key="image.id"
-          :image="image"
-          @remove="handleRemoveImage"
-        />
-      </div>
+      <draggable
+        :model-value="notesStore.images"
+        @update:model-value="notesStore.setImages"
+        item-key="id"
+        handle=".drag-handle"
+        :animation="200"
+        ghost-class="drag-ghost"
+        style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;"
+      >
+        <template #item="{ element }">
+          <ImagePreview :image="element" @remove="handleRemoveImage" />
+        </template>
+      </draggable>
     </div>
 
     <!-- Options (checkboxes) -->
@@ -288,5 +294,11 @@ function loadTestData() {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+.drag-ghost {
+  opacity: 0.4;
+}
+.drag-handle:active {
+  cursor: grabbing;
 }
 </style>

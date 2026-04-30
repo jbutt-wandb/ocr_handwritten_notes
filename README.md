@@ -65,6 +65,59 @@ All three are served by W&B Inference — see the [model catalog](https://docs.w
 
 Likho calls W&B Inference's [OpenAI-compatible API](https://docs.wandb.ai/guides/inference/api-reference/) using the `openai` Python SDK. Images are downscaled to ≤1600px before sending (the API rejects very large base64 payloads), and structured output is enforced via `response_format={"type":"json_schema", ...}` so the model returns clean Markdown instead of prose-with-code-fences. Every OCR call is wrapped with `@weave.op`, so you'll find a full trace at `https://wandb.ai/<entity>/<project>/weave` after each run.
 
+## How Likho uses W&B
+
+A single W&B API key powers three integrations:
+
+### 1. W&B Inference — the model serving the OCR
+
+The vision LLM call goes to `https://api.inference.wandb.ai/v1` via the standard `openai` Python SDK with `base_url` overridden. No OpenAI account needed; the W&B key authenticates everything. Three vision models are exposed (Kimi-K2.5, Gemma 4 31B, Qwen 3.5 35B) and selected at runtime from the credentials modal.
+
+→ Code: `backend/services/inference_service.py` (`InferenceService` class — client construction, downscaling, structured output)
+→ Docs: [W&B Inference](https://docs.wandb.ai/guides/inference/)
+
+### 2. Weave tracing — observability for every OCR call
+
+`weave.init(f"{entity}/{project}")` runs at backend startup. Every OCR request is wrapped with `@weave.op`, so each call lands as a structured trace at `https://wandb.ai/<entity>/<project>/weave` with the input image, model response, token usage, latency, and cost auto-captured.
+
+The trace tree per request looks like:
+
+```
+process_ocr_request                  [@weave.op — top-level wrapper]
+├── preflight_custom_instructions    [only if customInstructions non-empty]
+│   └── feedback: PromptInjectionScorer { passed, risk_score }
+└── process_image                    [the actual W&B Inference call]
+```
+
+Each request also carries `weave.attributes` (image count, LaTeX/diagram flags, custom-instructions-present flag) so the trace explorer can slice by any of them.
+
+→ Code:
+- `backend/services/credentials.py:105` — `weave.init(f"{entity}/{project}")` at startup
+- `backend/services/inference_service.py:88` — `@weave.op` on the OCR LLM call
+- `backend/routers/ocr.py:92` — top-level `process_ocr_request` `@weave.op` wrapper
+- `backend/routers/ocr.py:100` — `weave.attributes` block
+
+→ Docs: [Weave](https://weave-docs.wandb.ai/)
+
+### 3. Weave Guardrails — prompt-injection protection
+
+The `customInstructions` textarea is a free-form input that gets concatenated into the OCR prompt. It's a textbook prompt-injection vector. Likho wraps [LLM Guard](https://github.com/protectai/llm-guard)'s `PromptInjection` scanner (a fine-tuned DeBERTa classifier, runs locally, ~280MB model) as a `weave.Scorer` subclass and applies it via the canonical `call.apply_scorer(...)` pattern.
+
+What that means in practice:
+- Every preflight check is its own Weave Call with the scorer's verdict attached as **feedback** — queryable in the UI as `feedback.passed == false` to see all rejected attempts.
+- The scorer is `weave.publish`'d on first init, so changing the threshold creates a new versioned object (v0, v1, …) and each Call references the version it ran against.
+- Rejected requests **never reach the W&B Inference call** — the trace ends with a parent-error and only the preflight child, distinguishable at a glance.
+- A potential follow-up is enabling a Weave **Monitor** on the `preflight_custom_instructions` op (UI-only, no code) to re-run the same scorer offline and dashboard rejection rate over time.
+
+→ Code:
+- `backend/services/scorers.py:13` — `PromptInjectionScorer(weave.Scorer)` subclass
+- `backend/services/scorers.py:22` — `@weave.op` on `score()`
+- `backend/services/scorers.py:48` — `weave.publish` versioning the scorer
+- `backend/routers/ocr.py:60` — pass-through `preflight_custom_instructions` op
+- `backend/routers/ocr.py` — `_check_prompt_injection()` runs `apply_scorer` and raises HTTP 400 on rejection
+
+→ Docs: [Weave Guardrails & Monitors](https://weave-docs.wandb.ai/guides/evaluation/guardrails_and_monitors)
+
 ## Project layout
 
 ```
@@ -98,6 +151,8 @@ frontend/src/
 - [W&B Inference docs](https://docs.wandb.ai/guides/inference/)
 - [W&B Inference API reference](https://docs.wandb.ai/guides/inference/api-reference/)
 - [Weave (LLM observability)](https://weave-docs.wandb.ai/)
+- [Weave Guardrails & Monitors](https://weave-docs.wandb.ai/guides/evaluation/guardrails_and_monitors)
+- [LLM Guard (ProtectAI)](https://github.com/protectai/llm-guard)
 
 ## License
 
