@@ -5,7 +5,6 @@ from pathlib import Path
 from threading import Lock
 from typing import Literal, Optional
 
-import weave
 from pydantic import BaseModel
 
 from backend.config import settings
@@ -20,15 +19,11 @@ Source = Literal["file", "env", "none"]
 
 class Credentials(BaseModel):
     openai_api_key: Optional[str] = None
-    wandb_api_key: Optional[str] = None
-    weave_entity: Optional[str] = None
-    weave_project: Optional[str] = None
 
 
 class CredentialStore:
     def __init__(self) -> None:
         self._lock = Lock()
-        self._weave_initialized_for: Optional[tuple[str, str, str]] = None
         self._creds, self._sources = self._load()
 
     def _load(self) -> tuple[Credentials, dict[str, Source]]:
@@ -44,14 +39,11 @@ class CredentialStore:
 
         env_map = {
             "openai_api_key": settings.openai_api_key,
-            "wandb_api_key": settings.wandb_api_key,
-            "weave_entity": settings.weave_entity,
-            "weave_project": settings.weave_project,
         }
 
         creds_data: dict = {}
         sources: dict[str, Source] = {}
-        for field in ("openai_api_key", "wandb_api_key", "weave_entity", "weave_project"):
+        for field in ("openai_api_key",):
             file_val = file_data.get(field)
             if file_val:
                 creds_data[field] = file_val
@@ -76,16 +68,11 @@ class CredentialStore:
         with self._lock:
             return bool(self._creds.openai_api_key)
 
-    def has_weave(self) -> bool:
-        with self._lock:
-            c = self._creds
-            return bool(c.wandb_api_key and c.weave_entity and c.weave_project)
-
     def save(self, payload: dict) -> Credentials:
         """Persist non-empty payload fields to the config file. Returns new creds."""
         with self._lock:
             current = self._read_file()
-            for field in ("openai_api_key", "wandb_api_key", "weave_entity", "weave_project"):
+            for field in ("openai_api_key",):
                 value = payload.get(field)
                 if value is not None and str(value).strip():
                     current[field] = str(value).strip()
@@ -107,26 +94,6 @@ class CredentialStore:
             return data if isinstance(data, dict) else {}
         except Exception:
             return {}
-
-    def try_init_weave(self) -> Optional[str]:
-        """Initialize Weave if all four creds present. Returns error string on failure, None on success/skip."""
-        with self._lock:
-            c = self._creds
-            if not (c.wandb_api_key and c.weave_entity and c.weave_project):
-                return None
-            target = (c.wandb_api_key, c.weave_entity, c.weave_project)
-            if self._weave_initialized_for == target:
-                return None
-
-        try:
-            os.environ["WANDB_API_KEY"] = c.wandb_api_key
-            weave.init(f"{c.weave_entity}/{c.weave_project}")
-            with self._lock:
-                self._weave_initialized_for = target
-            return None
-        except Exception as e:
-            logger.warning(f"Weave init failed: {e}")
-            return str(e)
 
 
 store = CredentialStore()

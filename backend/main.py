@@ -2,10 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routers import config, ocr
-from backend.services.credentials import store as credential_store
-
-# Initialize Weave at startup if credentials are present (non-fatal if not)
-credential_store.try_init_weave()
 
 app = FastAPI(
     title="OCR Notes API",

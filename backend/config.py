@@ -1,6 +1,5 @@
 from typing import Optional
 
-from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -11,9 +10,6 @@ class Settings(BaseSettings):
 
     # Optional credentials sourced from .env (UI-managed file overrides these)
     openai_api_key: Optional[str] = None
-    wandb_api_key: Optional[str] = Field(default=None, alias="WANDB_API_KEY")
-    weave_entity: Optional[str] = Field(default=None, alias="ENTITY")
-    weave_project: Optional[str] = Field(default=None, alias="PROJECT")
 
     class Config:
         env_file = ".env"

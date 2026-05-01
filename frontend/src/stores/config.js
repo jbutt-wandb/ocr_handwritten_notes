@@ -9,10 +9,8 @@ export const useConfigStore = defineStore('config', () => {
   const modalMode = ref('firstRun')
   const skipped = ref(false)
   const lastError = ref(null)
-  const lastWeaveWarning = ref(null)
 
   const openaiConfigured = computed(() => !!status.value?.openai_configured)
-  const wandbConfigured = computed(() => !!status.value?.wandb_configured)
 
   async function fetchStatus() {
     isLoading.value = true
@@ -31,11 +29,9 @@ export const useConfigStore = defineStore('config', () => {
   async function save(payload) {
     isLoading.value = true
     lastError.value = null
-    lastWeaveWarning.value = null
     try {
       const result = await apiSaveConfig(payload)
-      status.value = result.status
-      lastWeaveWarning.value = result.weave_warning || null
+      status.value = result
       return result
     } catch (err) {
       lastError.value = err.message || 'Save failed'
@@ -49,7 +45,6 @@ export const useConfigStore = defineStore('config', () => {
     modalMode.value = mode
     isModalOpen.value = true
     lastError.value = null
-    lastWeaveWarning.value = null
   }
 
   function closeModal({ skip = false } = {}) {
@@ -66,9 +61,7 @@ export const useConfigStore = defineStore('config', () => {
     modalMode,
     skipped,
     lastError,
-    lastWeaveWarning,
     openaiConfigured,
-    wandbConfigured,
     fetchStatus,
     save,
     openModal,

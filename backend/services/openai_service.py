@@ -1,6 +1,5 @@
 import re
 
-import weave
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -16,7 +15,6 @@ class OpenAIService:
     def __init__(self, api_key: str):
         self.client = AsyncOpenAI(api_key=api_key, timeout=60.0)
 
-    @weave.op
     async def process_image(
         self,
         image_base64: str,

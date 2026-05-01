@@ -96,7 +96,7 @@ async def process_images(
 
         try:
             logger.info(f"Sending image to OpenAI API...")
-            # Encode to base64 string for Weave to render in UI
+            # Encode to base64 for OpenAI image_url payload
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
             markdown = await openai_service.process_image(
                 image_base64, mime_type, contains_latex, contains_diagrams, custom_instructions

@@ -1,6 +1,6 @@
 # Likho
 
-Turn photos of handwritten notes into editable Markdown. Vue 3 frontend, FastAPI backend, OpenAI Vision for OCR, optional Weave tracing.
+Turn photos of handwritten notes into editable Markdown. Vue 3 frontend, FastAPI backend, OpenAI Vision for OCR. Bring your own OpenAI API key.
 
 ## Features
 
@@ -8,7 +8,6 @@ Turn photos of handwritten notes into editable Markdown. Vue 3 frontend, FastAPI
 - LaTeX equations and diagram descriptions on demand
 - Live Markdown editor with KaTeX preview
 - In-app credentials modal — no `.env` required to get started
-- Optional W&B Weave tracing for every LLM call
 
 ## Prerequisites
 
@@ -29,30 +28,27 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:5173>. On first run, a modal will prompt for your OpenAI key (and optional W&B credentials). Keys are stored locally in `.likho_config.json` (gitignored).
+Open <http://localhost:5173>. On first run, a modal will prompt for your OpenAI API key. The key is stored locally in `.likho_config.json` (gitignored).
 
 ## Configuration
 
 Credentials can be supplied two ways. The in-app modal takes precedence over the env file.
 
-**Option A — in-app modal (recommended):** click the gear icon, paste your keys, save.
+**Option A — in-app modal (recommended):** click the gear icon, paste your key, save.
 
 **Option B — env file:** copy `.env.example` to `.env` and fill in values. The backend loads it on startup.
 
 ```env
 OPENAI_API_KEY=sk-...
-WANDB_API_KEY=          # optional, enables Weave tracing
-ENTITY=                 # optional, your W&B entity/team
-PROJECT=                # optional, your W&B project
 ```
 
-You can change credentials at any time via the gear icon in the header.
+You can change the key at any time via the gear icon in the header.
 
 ## Project layout
 
 ```
 backend/
-  main.py             FastAPI app + Weave init
+  main.py             FastAPI app
   routers/
     ocr.py            POST /api/v1/ocr/process
     config.py         GET/POST /api/v1/config
