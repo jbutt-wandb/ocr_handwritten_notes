@@ -2,32 +2,22 @@ import base64
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from openai import APIConnectionError, APIStatusError, APITimeoutError
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.config import settings
 from backend.services.credentials import store as credential_store
-from backend.services.openai_service import OpenAIService
+from backend.services.providers import (
+    SUPPORTED_PROVIDERS,
+    ProviderError,
+    ProviderNotConfigured,
+    get_provider,
+)
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ocr", tags=["OCR"])
-
-
-def get_openai_service() -> OpenAIService:
-    creds = credential_store.get()
-    if not creds.openai_api_key:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "openai_not_configured",
-                "message": "OpenAI API key is not set. Open the credentials modal to add one.",
-            },
-        )
-    return OpenAIService(creds.openai_api_key)
 
 
 class OCRResult(BaseModel):
@@ -57,10 +47,30 @@ async def process_images(
     contains_latex: Annotated[bool, Form()] = False,
     contains_diagrams: Annotated[bool, Form()] = False,
     custom_instructions: Annotated[str, Form()] = "",
-    openai_service: OpenAIService = Depends(get_openai_service),
+    provider: Annotated[str, Form()] = "openai",
 ):
-    """Process uploaded images with OCR and return markdown."""
-    logger.info(f"=== Starting OCR processing ===")
+    """Process uploaded images with OCR using the selected provider."""
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "unsupported_provider",
+                "message": f"Provider must be one of {SUPPORTED_PROVIDERS}, got '{provider}'.",
+            },
+        )
+
+    try:
+        ocr_provider = get_provider(provider, credential_store)
+    except ProviderNotConfigured:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "provider_not_configured",
+                "message": f"No API key configured for {provider}. Add one via the credentials modal.",
+            },
+        )
+
+    logger.info(f"=== Starting OCR processing (provider={provider}) ===")
     logger.info(f"Number of images: {len(images)}")
     logger.info(f"Options - LaTeX: {contains_latex}, Diagrams: {contains_diagrams}")
     if custom_instructions:
@@ -71,7 +81,6 @@ async def process_images(
     for index, image in enumerate(images):
         logger.info(f"Processing image {index + 1}/{len(images)}: {image.filename}")
 
-        # Validate file type
         ext = image.filename.split(".")[-1].lower() if image.filename else ""
         if ext not in settings.allowed_extensions:
             logger.error(f"Invalid file type: {ext}")
@@ -79,14 +88,11 @@ async def process_images(
                 status_code=400, detail=f"Invalid file type: {ext}"
             )
 
-        # Get MIME type
         mime_type = MIME_TYPES.get(ext, "image/jpeg")
 
-        # Read image bytes
         image_bytes = await image.read()
         logger.info(f"Image size: {len(image_bytes) / 1024:.1f} KB")
 
-        # Check file size
         if len(image_bytes) > settings.max_file_size_mb * 1024 * 1024:
             logger.error(f"File {image.filename} exceeds size limit")
             raise HTTPException(
@@ -95,10 +101,9 @@ async def process_images(
             )
 
         try:
-            logger.info(f"Sending image to OpenAI API...")
-            # Encode to base64 for OpenAI image_url payload
+            logger.info(f"Sending image to {provider}...")
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-            markdown = await openai_service.process_image(
+            markdown = await ocr_provider.process_image(
                 image_base64, mime_type, contains_latex, contains_diagrams, custom_instructions
             )
             logger.info(f"Received response for image {index + 1} ({len(markdown)} chars)")
@@ -110,25 +115,11 @@ async def process_images(
                     markdown=markdown,
                 )
             )
-        except APIStatusError as e:
-            # 4xx/5xx from OpenAI — pass status + original message through.
-            msg = getattr(e, "message", None) or str(e)
-            logger.error(f"OpenAI returned {e.status_code} for image {index + 1}: {msg}")
+        except ProviderError as e:
+            logger.error(f"{provider} returned {e.status_code} for image {index + 1}: {e.message}")
             raise HTTPException(
                 status_code=e.status_code,
-                detail={"code": "openai_error", "message": msg},
-            )
-        except APITimeoutError as e:
-            logger.error(f"OpenAI timeout for image {index + 1}: {e}")
-            raise HTTPException(
-                status_code=504,
-                detail={"code": "openai_timeout", "message": f"OpenAI timed out: {e}"},
-            )
-        except APIConnectionError as e:
-            logger.error(f"OpenAI unreachable for image {index + 1}: {e}")
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "openai_unreachable", "message": f"Could not reach OpenAI: {e}"},
+                detail={"code": e.code, "message": e.message},
             )
         except Exception as e:
             logger.error(f"OCR processing failed for image {index + 1}: {str(e)}")

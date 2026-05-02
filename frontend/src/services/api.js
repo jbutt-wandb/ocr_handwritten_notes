@@ -22,6 +22,7 @@ export async function processImages(images, options) {
   formData.append('contains_latex', options.containsLatex)
   formData.append('contains_diagrams', options.containsDiagrams)
   formData.append('custom_instructions', options.customInstructions || '')
+  formData.append('provider', options.provider || 'openai')
 
   const response = await fetch(`${API_BASE}/ocr/process`, {
     method: 'POST',
@@ -39,6 +40,7 @@ export async function processSingleImage(image, options) {
   formData.append('contains_latex', options.containsLatex)
   formData.append('contains_diagrams', options.containsDiagrams)
   formData.append('custom_instructions', options.customInstructions || '')
+  formData.append('provider', options.provider || 'openai')
 
   const response = await fetch(`${API_BASE}/ocr/process`, {
     method: 'POST',

@@ -1,41 +1,70 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useConfigStore } from '../stores/config'
+import { useConfigStore, SUPPORTED_PROVIDERS, PROVIDER_LABELS } from '../stores/config'
 
 const configStore = useConfigStore()
 
-const openaiKey = ref('')
-const showOpenai = ref(false)
+const keyInput = ref('')
+const showKey = ref(false)
 const localError = ref(null)
 
 const isFirstRun = computed(() => configStore.modalMode === 'firstRun')
 const status = computed(() => configStore.status)
+const activeProvider = computed(() => configStore.selectedProvider)
+const activeLabel = computed(() => PROVIDER_LABELS[activeProvider.value])
+const activeFieldName = computed(() => `${activeProvider.value}_api_key`)
+
+const activeConfigured = computed(
+  () => !!status.value?.[`${activeProvider.value}_configured`]
+)
+const activePreview = computed(() => status.value?.[`${activeProvider.value}_preview`] || '')
+const activeSource = computed(() => status.value?.[`${activeProvider.value}_source`] || 'none')
+
+const placeholderForProvider = {
+  openai: 'sk-...',
+  anthropic: 'sk-ant-...',
+  gemini: 'AIza...'
+}
+
+const placeholder = computed(() =>
+  activePreview.value
+    ? `current: ${activePreview.value}`
+    : placeholderForProvider[activeProvider.value] || 'API key'
+)
 
 watch(
   () => configStore.isModalOpen,
   (open) => {
     if (open) {
-      openaiKey.value = ''
-      showOpenai.value = false
+      keyInput.value = ''
+      showKey.value = false
       localError.value = null
     }
   }
 )
 
-const openaiPlaceholder = computed(() =>
-  status.value?.openai_preview ? `current: ${status.value.openai_preview}` : 'sk-...'
-)
+watch(activeProvider, () => {
+  keyInput.value = ''
+  showKey.value = false
+  localError.value = null
+})
+
+function selectProvider(name) {
+  configStore.setSelectedProvider(name)
+}
 
 async function handleSave() {
   localError.value = null
 
-  if (!status.value?.openai_configured && !openaiKey.value.trim()) {
-    localError.value = 'OpenAI API key is required'
+  if (!activeConfigured.value && !keyInput.value.trim()) {
+    localError.value = `${activeLabel.value} API key is required`
     return
   }
 
   const payload = {}
-  if (openaiKey.value.trim()) payload.openai_api_key = openaiKey.value.trim()
+  if (keyInput.value.trim()) {
+    payload[activeFieldName.value] = keyInput.value.trim()
+  }
 
   if (Object.keys(payload).length === 0) {
     configStore.closeModal()
@@ -56,6 +85,10 @@ function handleSkip() {
 
 function handleCancel() {
   configStore.closeModal()
+}
+
+function isProviderConfigured(name) {
+  return !!status.value?.[`${name}_configured`]
 }
 </script>
 
@@ -83,33 +116,77 @@ function handleCancel() {
       </div>
       <p style="font-size: 14px; color: var(--color-text-muted); margin: 0 0 20px 0; line-height: 1.5;">
         {{ isFirstRun
-          ? 'Add your OpenAI API key to enable OCR. Stored locally in .likho_config.json.'
-          : 'Update your OpenAI API key. The existing value stays unless you enter a new one.' }}
+          ? 'Pick a provider and add its API key to enable OCR. Stored locally in .likho_config.json.'
+          : 'Update API keys for any provider. The existing value stays unless you enter a new one.' }}
       </p>
 
-      <!-- OpenAI -->
+      <!-- Provider radio -->
+      <div style="margin-bottom: 18px;">
+        <div style="font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">
+          Provider
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <label
+            v-for="name in SUPPORTED_PROVIDERS"
+            :key="name"
+            :style="{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '10px 12px',
+              fontSize: '13px',
+              fontWeight: '500',
+              color: activeProvider === name ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+              backgroundColor: activeProvider === name ? 'var(--color-bg)' : 'transparent',
+              border: `1px solid ${activeProvider === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
+              borderRadius: '6px',
+              cursor: 'pointer',
+              userSelect: 'none'
+            }"
+          >
+            <input
+              type="radio"
+              name="provider"
+              :value="name"
+              :checked="activeProvider === name"
+              @change="selectProvider(name)"
+              style="display: none;"
+            />
+            <span>{{ PROVIDER_LABELS[name] }}</span>
+            <span
+              v-if="isProviderConfigured(name)"
+              :style="{ color: '#22c55e', fontSize: '13px', fontWeight: '700' }"
+              aria-label="Configured"
+            >✓</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Conditional key input -->
       <div style="margin-bottom: 18px;">
         <label style="display: block; font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px;">
-          OpenAI API Key <span style="color: #f87171;">*</span>
-          <span v-if="status?.openai_configured" style="font-weight: 400; color: var(--color-text-muted); margin-left: 6px;">
-            ({{ status.openai_preview }} from {{ status.openai_source }})
+          {{ activeLabel }} API Key <span style="color: #f87171;">*</span>
+          <span v-if="activeConfigured" style="font-weight: 400; color: var(--color-text-muted); margin-left: 6px;">
+            ({{ activePreview }} from {{ activeSource }})
           </span>
         </label>
         <div style="display: flex; gap: 8px;">
           <input
-            :type="showOpenai ? 'text' : 'password'"
-            v-model="openaiKey"
-            :placeholder="openaiPlaceholder"
+            :type="showKey ? 'text' : 'password'"
+            v-model="keyInput"
+            :placeholder="placeholder"
             autocomplete="off"
             spellcheck="false"
             style="flex: 1; padding: 10px 12px; font-size: 14px; font-family: ui-monospace, monospace; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none;"
           />
           <button
             type="button"
-            @click="showOpenai = !showOpenai"
+            @click="showKey = !showKey"
             style="padding: 0 12px; font-size: 12px; background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer;"
           >
-            {{ showOpenai ? 'Hide' : 'Show' }}
+            {{ showKey ? 'Hide' : 'Show' }}
           </button>
         </div>
       </div>

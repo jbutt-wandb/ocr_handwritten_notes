@@ -16,9 +16,13 @@ CONFIG_TMP_PATH = CONFIG_PATH.with_suffix(".json.tmp")
 
 Source = Literal["file", "env", "none"]
 
+PROVIDER_FIELDS = ("openai_api_key", "anthropic_api_key", "gemini_api_key")
+
 
 class Credentials(BaseModel):
     openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 
 
 class CredentialStore:
@@ -39,11 +43,13 @@ class CredentialStore:
 
         env_map = {
             "openai_api_key": settings.openai_api_key,
+            "anthropic_api_key": settings.anthropic_api_key,
+            "gemini_api_key": settings.gemini_api_key,
         }
 
         creds_data: dict = {}
         sources: dict[str, Source] = {}
-        for field in ("openai_api_key",):
+        for field in PROVIDER_FIELDS:
             file_val = file_data.get(field)
             if file_val:
                 creds_data[field] = file_val
@@ -68,11 +74,25 @@ class CredentialStore:
         with self._lock:
             return bool(self._creds.openai_api_key)
 
+    def has_provider(self, provider: str) -> bool:
+        field = f"{provider}_api_key"
+        if field not in PROVIDER_FIELDS:
+            return False
+        with self._lock:
+            return bool(getattr(self._creds, field, None))
+
+    def get_key(self, provider: str) -> Optional[str]:
+        field = f"{provider}_api_key"
+        if field not in PROVIDER_FIELDS:
+            return None
+        with self._lock:
+            return getattr(self._creds, field, None)
+
     def save(self, payload: dict) -> Credentials:
         """Persist non-empty payload fields to the config file. Returns new creds."""
         with self._lock:
             current = self._read_file()
-            for field in ("openai_api_key",):
+            for field in PROVIDER_FIELDS:
                 value = payload.get(field)
                 if value is not None and str(value).strip():
                     current[field] = str(value).strip()

@@ -1,8 +1,8 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotesStore } from '../stores/notes'
-import { useConfigStore } from '../stores/config'
+import { useConfigStore, PROVIDER_LABELS } from '../stores/config'
 import { processSingleImage } from '../services/api'
 import DropZone from '../components/DropZone.vue'
 import ImagePreview from '../components/ImagePreview.vue'
@@ -14,6 +14,9 @@ const showNoImagesMessage = ref(false)
 const customInstructions = ref('')
 const showCustomInstructions = ref(false)
 const isDev = import.meta.env.DEV
+
+const selectedProviderLabel = computed(() => PROVIDER_LABELS[configStore.selectedProvider] || 'the selected provider')
+const canRun = computed(() => configStore.isSelectedProviderConfigured)
 
 function handleFilesSelected(files) {
   notesStore.addImages(files)
@@ -42,7 +45,8 @@ async function handleSubmit() {
 
   const options = {
     ...notesStore.options,
-    customInstructions: customInstructions.value
+    customInstructions: customInstructions.value,
+    provider: configStore.selectedProvider
   }
 
   try {
@@ -216,40 +220,51 @@ function loadTestData() {
       ></textarea>
     </div>
 
-    <!-- Submit Button -->
-    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+    <!-- Action Row: Preview Editor (left) + Convert to Markdown (right) -->
+    <div style="display: flex; align-items: flex-start; gap: 16px;">
       <button
-        @click="handleSubmit"
-        :disabled="notesStore.isProcessing || !configStore.openaiConfigured"
-        :title="!configStore.openaiConfigured ? 'Add an OpenAI key via the gear icon to enable conversion' : ''"
-        :style="{
-          padding: '10px 24px',
-          fontSize: '15px',
-          fontWeight: '500',
-          color: 'white',
-          backgroundColor: 'var(--color-accent)',
-          border: 'none',
-          borderRadius: '24px',
-          cursor: (notesStore.isProcessing || !configStore.openaiConfigured) ? 'not-allowed' : 'pointer',
-          opacity: (notesStore.isProcessing || !configStore.openaiConfigured) ? '0.5' : '1'
-        }"
-        @mouseenter="(!notesStore.isProcessing && configStore.openaiConfigured) && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
+        v-if="isDev"
+        @click="loadTestData"
+        style="padding: 10px 24px; font-size: 15px; font-weight: 500; color: white; background-color: var(--color-accent); border: none; border-radius: 24px; cursor: pointer;"
+        @mouseenter="$event.target.style.backgroundColor = 'var(--color-accent-hover)'"
         @mouseleave="$event.target.style.backgroundColor = 'var(--color-accent)'"
       >
-        Convert to Markdown
+        Preview Editor
       </button>
-      <p
-        v-if="!configStore.openaiConfigured"
-        style="font-size: 13px; color: var(--color-text-muted); margin: 0;"
-      >
-        Add your OpenAI API key via the
+      <div style="margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
         <button
-          type="button"
-          @click="configStore.openModal('edit')"
-          style="background: transparent; border: none; padding: 0; color: var(--color-accent); cursor: pointer; font-size: 13px; text-decoration: underline;"
-        >gear icon</button>
-        to enable conversion.
-      </p>
+          @click="handleSubmit"
+          :disabled="notesStore.isProcessing || !canRun"
+          :title="!canRun ? `Add a ${selectedProviderLabel} API key to enable conversion` : ''"
+          :style="{
+            padding: '10px 24px',
+            fontSize: '15px',
+            fontWeight: '500',
+            color: 'white',
+            backgroundColor: 'var(--color-accent)',
+            border: 'none',
+            borderRadius: '24px',
+            cursor: (notesStore.isProcessing || !canRun) ? 'not-allowed' : 'pointer',
+            opacity: (notesStore.isProcessing || !canRun) ? '0.5' : '1'
+          }"
+          @mouseenter="(!notesStore.isProcessing && canRun) && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
+          @mouseleave="$event.target.style.backgroundColor = 'var(--color-accent)'"
+        >
+          Convert to Markdown
+        </button>
+        <p style="font-size: 13px; color: var(--color-text-muted); margin: 0;">
+          Using <strong style="color: var(--color-text-primary); font-weight: 500;">{{ selectedProviderLabel }}</strong>.
+          <template v-if="!canRun">
+            Add a {{ selectedProviderLabel }} API key via the
+            <button
+              type="button"
+              @click="configStore.openModal('edit')"
+              style="background: transparent; border: none; padding: 0; color: var(--color-accent); cursor: pointer; font-size: 13px; text-decoration: underline;"
+            >gear icon</button>
+            to enable conversion.
+          </template>
+        </p>
+      </div>
     </div>
 
     <!-- No images message -->
@@ -266,19 +281,6 @@ function loadTestData() {
       style="margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 14px; background-color: rgba(239, 68, 68, 0.1); color: #f87171; white-space: pre-wrap;"
     >
       {{ notesStore.error }}
-    </div>
-
-    <!-- Dev Mode Test Button -->
-    <div
-      v-if="isDev"
-      style="margin-top: 32px; padding-top: 24px; border-top: 1px dashed var(--color-border);"
-    >
-      <button
-        @click="loadTestData"
-        style="padding: 10px 20px; font-size: 14px; background-color: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;"
-      >
-        Load Test Data (Dev)
-      </button>
     </div>
     </div>
   </div>

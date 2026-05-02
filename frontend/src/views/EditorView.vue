@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotesStore } from '../stores/notes'
+import { useConfigStore } from '../stores/config'
 import { marked } from 'marked'
 import katex from 'katex'
 import DropZone from '../components/DropZone.vue'
@@ -9,6 +10,7 @@ import { processSingleImage } from '../services/api'
 
 const router = useRouter()
 const notesStore = useNotesStore()
+const configStore = useConfigStore()
 const viewMode = ref('editor')
 const editorContent = ref('')
 const documentTitle = ref('Untitled Document')
@@ -132,7 +134,8 @@ async function processAddImages() {
       const response = await processSingleImage(image, {
         containsLatex: addOptions.value.containsLatex,
         containsDiagrams: addOptions.value.containsDiagrams,
-        customInstructions: addOptions.value.customInstructions
+        customInstructions: addOptions.value.customInstructions,
+        provider: configStore.selectedProvider
       })
 
       if (response.success && response.results.length > 0) {

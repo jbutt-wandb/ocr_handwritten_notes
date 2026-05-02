@@ -10,6 +10,8 @@ class Settings(BaseSettings):
 
     # Optional credentials sourced from .env (UI-managed file overrides these)
     openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 
     class Config:
         env_file = ".env"
