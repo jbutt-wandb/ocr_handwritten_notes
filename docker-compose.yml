@@ -1,0 +1,38 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: likho-backend
+    container_name: likho-backend
+    ports:
+      - "8000:8000"
+    environment:
+      LIKHO_CONFIG_PATH: /data/.likho_config.json
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - likho_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/api/v1/health\").status==200 else 1)'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: likho-frontend
+    container_name: likho-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  likho_data:

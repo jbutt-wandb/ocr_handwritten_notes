@@ -21,6 +21,21 @@ Turn photos of handwritten notes into editable Markdown. Vue 3 frontend, FastAPI
 
 ## Quick start
 
+### Option 1 — Docker (single command)
+
+```bash
+# Optional: pre-fill provider keys so the first run skips the modal
+cp .env.example .env  # then edit and set at least one key
+
+docker compose up --build
+```
+
+Open <http://localhost:5173>. The frontend is served by nginx (port 5173 → container 80) and the backend runs on <http://localhost:8000>.
+
+Keys saved via the in-app modal persist in a named Docker volume (`likho_data`), so they survive `docker compose down`/`up`. Wipe with `docker compose down -v`. Updating `.env` requires `docker compose up --build` to take effect.
+
+### Option 2 — Local dev
+
 ```bash
 # Backend
 uv sync

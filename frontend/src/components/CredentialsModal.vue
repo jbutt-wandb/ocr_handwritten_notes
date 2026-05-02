@@ -7,18 +7,18 @@ const configStore = useConfigStore()
 const keyInput = ref('')
 const showKey = ref(false)
 const localError = ref(null)
+const modalProvider = ref(configStore.selectedProvider)
 
 const isFirstRun = computed(() => configStore.modalMode === 'firstRun')
 const status = computed(() => configStore.status)
-const activeProvider = computed(() => configStore.selectedProvider)
-const activeLabel = computed(() => PROVIDER_LABELS[activeProvider.value])
-const activeFieldName = computed(() => `${activeProvider.value}_api_key`)
+const activeLabel = computed(() => PROVIDER_LABELS[modalProvider.value])
+const activeFieldName = computed(() => `${modalProvider.value}_api_key`)
 
 const activeConfigured = computed(
-  () => !!status.value?.[`${activeProvider.value}_configured`]
+  () => !!status.value?.[`${modalProvider.value}_configured`]
 )
-const activePreview = computed(() => status.value?.[`${activeProvider.value}_preview`] || '')
-const activeSource = computed(() => status.value?.[`${activeProvider.value}_source`] || 'none')
+const activePreview = computed(() => status.value?.[`${modalProvider.value}_preview`] || '')
+const activeSource = computed(() => status.value?.[`${modalProvider.value}_source`] || 'none')
 
 const placeholderForProvider = {
   openai: 'sk-...',
@@ -29,13 +29,14 @@ const placeholderForProvider = {
 const placeholder = computed(() =>
   activePreview.value
     ? `current: ${activePreview.value}`
-    : placeholderForProvider[activeProvider.value] || 'API key'
+    : placeholderForProvider[modalProvider.value] || 'API key'
 )
 
 watch(
   () => configStore.isModalOpen,
   (open) => {
     if (open) {
+      modalProvider.value = configStore.selectedProvider
       keyInput.value = ''
       showKey.value = false
       localError.value = null
@@ -43,20 +44,23 @@ watch(
   }
 )
 
-watch(activeProvider, () => {
+watch(modalProvider, () => {
   keyInput.value = ''
   showKey.value = false
   localError.value = null
 })
 
 function selectProvider(name) {
-  configStore.setSelectedProvider(name)
+  if (SUPPORTED_PROVIDERS.includes(name)) {
+    modalProvider.value = name
+  }
 }
 
 async function handleSave() {
   localError.value = null
 
-  if (!activeConfigured.value && !keyInput.value.trim()) {
+  const willBeConfigured = activeConfigured.value || !!keyInput.value.trim()
+  if (!willBeConfigured) {
     localError.value = `${activeLabel.value} API key is required`
     return
   }
@@ -66,13 +70,11 @@ async function handleSave() {
     payload[activeFieldName.value] = keyInput.value.trim()
   }
 
-  if (Object.keys(payload).length === 0) {
-    configStore.closeModal()
-    return
-  }
-
   try {
-    await configStore.save(payload)
+    if (Object.keys(payload).length > 0) {
+      await configStore.save(payload)
+    }
+    configStore.setSelectedProvider(modalProvider.value)
     configStore.closeModal()
   } catch (err) {
     localError.value = configStore.lastError || err.message
@@ -138,9 +140,9 @@ function isProviderConfigured(name) {
               padding: '10px 12px',
               fontSize: '13px',
               fontWeight: '500',
-              color: activeProvider === name ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-              backgroundColor: activeProvider === name ? 'var(--color-bg)' : 'transparent',
-              border: `1px solid ${activeProvider === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
+              color: modalProvider === name ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+              backgroundColor: modalProvider === name ? 'var(--color-bg)' : 'transparent',
+              border: `1px solid ${modalProvider === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
               borderRadius: '6px',
               cursor: 'pointer',
               userSelect: 'none'
@@ -150,7 +152,7 @@ function isProviderConfigured(name) {
               type="radio"
               name="provider"
               :value="name"
-              :checked="activeProvider === name"
+              :checked="modalProvider === name"
               @change="selectProvider(name)"
               style="display: none;"
             />

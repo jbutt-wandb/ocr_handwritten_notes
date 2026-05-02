@@ -11,7 +11,14 @@ from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / ".likho_config.json"
+def _resolve_config_path() -> Path:
+    override = os.getenv("LIKHO_CONFIG_PATH")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent.parent / ".likho_config.json"
+
+
+CONFIG_PATH = _resolve_config_path()
 CONFIG_TMP_PATH = CONFIG_PATH.with_suffix(".json.tmp")
 
 Source = Literal["file", "env", "none"]
