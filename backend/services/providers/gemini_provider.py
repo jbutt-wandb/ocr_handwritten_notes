@@ -13,7 +13,7 @@ from backend.services.providers.base import (
     clean_markdown,
 )
 
-MODEL = "gemini-2.5-pro"
+MODEL = "gemini-2.5-flash"
 
 
 class GeminiProvider(OCRProvider):
