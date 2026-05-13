@@ -12,9 +12,23 @@ const router = useRouter()
 const notesStore = useNotesStore()
 const configStore = useConfigStore()
 const showNoImagesMessage = ref(false)
-const customInstructions = ref('')
 const showCustomInstructions = ref(false)
+const compareError = ref(null)
 const isDev = import.meta.env.DEV
+
+function handleCompareClick() {
+  compareError.value = null
+  const count = notesStore.images.length
+  if (count === 0) {
+    compareError.value = 'Upload an image first, then compare models.'
+    return
+  }
+  if (count > 1) {
+    compareError.value = 'Comparison only works on a single image. Remove the others or run them through the standard converter.'
+    return
+  }
+  router.push('/compare')
+}
 
 function handleFilesSelected(files) {
   notesStore.addImages(files)
@@ -34,8 +48,8 @@ async function handleSubmit() {
   console.log('=== Starting OCR Processing (Parallel) ===')
   console.log(`Processing ${notesStore.images.length} image(s) in parallel`)
   console.log(`Options: LaTeX=${notesStore.options.containsLatex}, Diagrams=${notesStore.options.containsDiagrams}`)
-  if (customInstructions.value) {
-    console.log(`Custom instructions: ${customInstructions.value.substring(0, 100)}...`)
+  if (notesStore.customInstructions) {
+    console.log(`Custom instructions: ${notesStore.customInstructions.substring(0, 100)}...`)
   }
 
   notesStore.setProcessing(true)
@@ -43,7 +57,7 @@ async function handleSubmit() {
 
   const options = {
     ...notesStore.options,
-    customInstructions: customInstructions.value
+    customInstructions: notesStore.customInstructions
   }
 
   try {
@@ -216,18 +230,18 @@ function loadTestData() {
       </label>
       <textarea
         v-show="showCustomInstructions"
-        v-model="customInstructions"
+        v-model="notesStore.customInstructions"
         placeholder="e.g., Focus on mathematical equations, preserve table formatting, use bullet points for lists..."
         style="width: 100%; min-height: 80px; padding: 12px; font-size: 14px; font-family: inherit; line-height: 1.5; background-color: var(--color-surface); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; resize: vertical; outline: none;"
       ></textarea>
     </div>
 
-    <!-- Submit Button -->
-    <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+    <!-- Action Row: Compare (left) + Convert (right) -->
+    <div style="display: flex; align-items: flex-start; gap: 16px;">
       <button
-        @click="handleSubmit"
-        :disabled="notesStore.isProcessing || !configStore.inferenceReady"
-        :title="!configStore.inferenceReady ? 'Add your W&B credentials via the gear icon to enable conversion' : ''"
+        @click="handleCompareClick"
+        :disabled="!configStore.inferenceReady"
+        :title="!configStore.inferenceReady ? 'Configure W&B credentials first' : 'Run all 3 models on a single image'"
         :style="{
           padding: '10px 24px',
           fontSize: '15px',
@@ -236,26 +250,49 @@ function loadTestData() {
           backgroundColor: 'var(--color-accent)',
           border: 'none',
           borderRadius: '24px',
-          cursor: (notesStore.isProcessing || !configStore.inferenceReady) ? 'not-allowed' : 'pointer',
-          opacity: (notesStore.isProcessing || !configStore.inferenceReady) ? '0.5' : '1'
+          cursor: configStore.inferenceReady ? 'pointer' : 'not-allowed',
+          opacity: configStore.inferenceReady ? '1' : '0.5'
         }"
-        @mouseenter="(!notesStore.isProcessing && configStore.inferenceReady) && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
+        @mouseenter="configStore.inferenceReady && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
         @mouseleave="$event.target.style.backgroundColor = 'var(--color-accent)'"
       >
-        Convert to Markdown
+        Compare models
       </button>
-      <p
-        v-if="!configStore.inferenceReady"
-        style="font-size: 13px; color: var(--color-text-muted); margin: 0;"
-      >
-        Add your W&amp;B API key, entity, and project via the
+
+      <div style="margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
         <button
-          type="button"
-          @click="configStore.openModal('edit')"
-          style="background: transparent; border: none; padding: 0; color: var(--color-accent); cursor: pointer; font-size: 13px; text-decoration: underline;"
-        >gear icon</button>
-        to enable conversion.
-      </p>
+          @click="handleSubmit"
+          :disabled="notesStore.isProcessing || !configStore.inferenceReady"
+          :title="!configStore.inferenceReady ? 'Add your W&B credentials via the gear icon to enable conversion' : ''"
+          :style="{
+            padding: '10px 24px',
+            fontSize: '15px',
+            fontWeight: '500',
+            color: 'white',
+            backgroundColor: 'var(--color-accent)',
+            border: 'none',
+            borderRadius: '24px',
+            cursor: (notesStore.isProcessing || !configStore.inferenceReady) ? 'not-allowed' : 'pointer',
+            opacity: (notesStore.isProcessing || !configStore.inferenceReady) ? '0.5' : '1'
+          }"
+          @mouseenter="(!notesStore.isProcessing && configStore.inferenceReady) && ($event.target.style.backgroundColor = 'var(--color-accent-hover)')"
+          @mouseleave="$event.target.style.backgroundColor = 'var(--color-accent)'"
+        >
+          Convert to Markdown
+        </button>
+        <p
+          v-if="!configStore.inferenceReady"
+          style="font-size: 13px; color: var(--color-text-muted); margin: 0;"
+        >
+          Add your W&amp;B API key, entity, and project via the
+          <button
+            type="button"
+            @click="configStore.openModal('edit')"
+            style="background: transparent; border: none; padding: 0; color: var(--color-accent); cursor: pointer; font-size: 13px; text-decoration: underline;"
+          >gear icon</button>
+          to enable conversion.
+        </p>
+      </div>
     </div>
 
     <!-- No images message -->
@@ -264,6 +301,14 @@ function loadTestData() {
       style="margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 14px; background-color: rgba(239, 68, 68, 0.1); color: #f87171;"
     >
       Please upload at least one image before processing.
+    </div>
+
+    <!-- Compare validation message -->
+    <div
+      v-if="compareError"
+      style="margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 14px; background-color: rgba(239, 68, 68, 0.1); color: #f87171;"
+    >
+      {{ compareError }}
     </div>
 
     <!-- Error Message -->

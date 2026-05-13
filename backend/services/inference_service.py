@@ -43,6 +43,15 @@ MAX_IMAGE_DIMENSION = 1600
 MAX_OUTPUT_TOKENS = 8192
 
 
+def _ocr_inputs_for_trace(inputs: dict) -> dict:
+    return {
+        "image_base64": inputs.get("image_base64"),
+        "contains_latex": inputs.get("contains_latex"),
+        "contains_diagrams": inputs.get("contains_diagrams"),
+        "custom_instructions": inputs.get("custom_instructions", ""),
+    }
+
+
 class OCROutput(BaseModel):
     """Structured output for OCR results."""
     markdown: str
@@ -85,7 +94,7 @@ class InferenceService:
         self.client = AsyncOpenAI(**kwargs)
         self.model = resolve_model(model)
 
-    @weave.op
+    @weave.op(postprocess_inputs=_ocr_inputs_for_trace)
     async def process_image(
         self,
         image_base64: str,

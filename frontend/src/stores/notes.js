@@ -10,6 +10,7 @@ export const useNotesStore = defineStore('notes', () => {
     containsLatex: false,
     containsDiagrams: false
   })
+  const customInstructions = ref('')
   const results = ref([])
   const isProcessing = ref(false)
   const currentImageIndex = ref(0)
@@ -98,6 +99,7 @@ export const useNotesStore = defineStore('notes', () => {
       containsLatex: false,
       containsDiagrams: false
     }
+    customInstructions.value = ''
   }
 
   function loadTestData() {
@@ -111,6 +113,7 @@ export const useNotesStore = defineStore('notes', () => {
   return {
     images,
     options,
+    customInstructions,
     results,
     isProcessing,
     currentImageIndex,

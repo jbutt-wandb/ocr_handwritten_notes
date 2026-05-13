@@ -10,7 +10,10 @@ Built with Vue 3 + FastAPI, powered by [W&B Inference](https://docs.wandb.ai/gui
 
 - Drag and drop up to 5 images at once — they process in parallel
 - Optional LaTeX equations and diagram descriptions
-- Live Markdown editor with KaTeX math preview
+- **Per-image editor with sticky-thumbnail gutter** — each image owns its own section, edits stay scoped to the image you're working on
+- Live Markdown editor with KaTeX math preview, click-to-zoom thumbnails, arrow-key navigation across sections
+- **Compare across all three vision models on a single image**, then promote the winner to active and continue editing — `/compare` route
+- **Dataset capture on download** — every Download click ships per-image `(image, edited_markdown, original_ocr)` rows to a Weave Dataset (`likho-ocr-captures`) for later eval / fine-tuning. Fire-and-forget; the download isn't blocked or affected
 - Pick your vision model from the gear icon — Kimi (default, fastest), Gemma, or Qwen
 - First-run credentials modal — no manual `.env` editing required
 - Every OCR call traced to your W&B project via Weave
@@ -80,26 +83,52 @@ The vision LLM call goes to `https://api.inference.wandb.ai/v1` via the standard
 
 `weave.init(f"{entity}/{project}")` runs at backend startup. Every OCR request is wrapped with `@weave.op`, so each call lands as a structured trace at `https://wandb.ai/<entity>/<project>/weave` with the input image, model response, token usage, latency, and cost auto-captured.
 
-The trace tree per request looks like:
+The trace tree for a `/process` request looks like:
 
 ```
 process_ocr_request                  [@weave.op — top-level wrapper]
 ├── preflight_custom_instructions    [only if customInstructions non-empty]
 │   └── feedback: PromptInjectionScorer { passed, risk_score }
-└── process_image                    [the actual W&B Inference call]
+└── process_image                    [N children, one per image — actual W&B Inference call]
 ```
 
-Each request also carries `weave.attributes` (image count, LaTeX/diagram flags, custom-instructions-present flag) so the trace explorer can slice by any of them.
+For `/compare` (one image, all three models in parallel):
+
+```
+process_ocr_comparison               [@weave.op parent]
+├── preflight_custom_instructions    [only if customInstructions non-empty]
+└── process_image × 3                [one per model, asyncio.gather, tagged via weave.attributes]
+```
+
+Inputs and outputs on every op are post-processed before recording — only the user-controlled bits go to Weave (`image_base64`, the option bools, `custom_instructions`); the API key, raw `UploadFile` blobs, MIME types, and `self` references are stripped. The `/compare` parent op records only `image_size_kb` + a 16-char SHA256 of the image (the leaf children carry the full base64). Sidecar metadata like `endpoint`, `image_count`, `contains_latex` lives on `weave.attributes` and shows up in the attributes panel for filtering.
 
 → Code:
-- `backend/services/credentials.py:105` — `weave.init(f"{entity}/{project}")` at startup
-- `backend/services/inference_service.py:88` — `@weave.op` on the OCR LLM call
-- `backend/routers/ocr.py:92` — top-level `process_ocr_request` `@weave.op` wrapper
-- `backend/routers/ocr.py:100` — `weave.attributes` block
+- `backend/services/credentials.py` — `weave.init(f"{entity}/{project}")` on startup / config save
+- `backend/services/inference_service.py` — `_ocr_inputs_for_trace` postprocess + `@weave.op` on `process_image`
+- `backend/routers/ocr.py` — `_process_inputs_for_trace` / `_compare_inputs_for_trace` postprocess + parent op definitions
 
 → Docs: [Weave](https://weave-docs.wandb.ai/)
 
-### 3. Weave Guardrails — prompt-injection protection
+### 4. Weave Datasets — capture (image, edited-markdown) pairs on download
+
+Every **Download** click POSTs per-image rows to `POST /api/v1/dataset/capture`. The endpoint returns `202 Accepted` immediately and writes the rows to a Weave Dataset (`likho-ocr-captures` — override via `LIKHO_DATASET_NAME`) in a FastAPI `BackgroundTask`. The frontend doesn't `await` the POST — your `.md` file arrives the same instant it always did.
+
+Each row carries:
+
+| Field | Purpose |
+| --- | --- |
+| `image_base64`, `image_filename` | the source image |
+| `markdown` | the user's edited final text for that image |
+| `original_ocr` | the model's pre-edit OCR (snapshotted at editor mount) — diff vs. `markdown` is the strongest "did the user need to fix this?" signal |
+| `options` | LaTeX / diagram / custom-instructions flags at OCR time |
+| `model_id` | which vision model produced the original OCR |
+| `document_title`, `row_id`, `created_at` | metadata |
+
+The dataset is versioned automatically — `add_rows` creates a new version on every download. Filter `image_sha256 == max(created_at)` at training time if you want latest-only.
+
+→ Code: `backend/routers/dataset.py`, `frontend/src/services/api.js:captureDatasetRows`, `frontend/src/views/EditorView.vue:downloadMarkdown`
+
+### 5. Weave Guardrails — prompt-injection protection
 
 The `customInstructions` textarea is a free-form input that gets concatenated into the OCR prompt. It's a textbook prompt-injection vector. Likho wraps [LLM Guard](https://github.com/protectai/llm-guard)'s `PromptInjection` scanner (a fine-tuned DeBERTa classifier, runs locally, ~280MB model) as a `weave.Scorer` subclass and applies it via the canonical `call.apply_scorer(...)` pattern.
 
@@ -122,21 +151,33 @@ What that means in practice:
 
 ```
 backend/
-  main.py                 FastAPI app + Weave init
+  main.py                 FastAPI app + Weave init on startup
   routers/
-    ocr.py                POST /api/v1/ocr/process
-    config.py             GET/POST /api/v1/config
+    ocr.py                POST /api/v1/ocr/process, POST /api/v1/ocr/compare
+    config.py             GET/POST /api/v1/config — credentials + active model
+    dataset.py            POST /api/v1/dataset/capture — Weave Dataset writes
   services/
     inference_service.py  W&B Inference client + json_schema output + image resize
-    credentials.py        Reads/writes .env via python-dotenv
+                          + AVAILABLE_MODELS registry (Kimi, Gemma, Qwen)
+    credentials.py        Reads/writes .env via python-dotenv; weave.init memoized
+    scorers.py            PromptInjectionScorer (weave.Scorer subclass)
   prompts/
     ocr_prompts.py        Prompt builder (LaTeX/diagram toggles)
 
 frontend/src/
-  views/                  UploadView, EditorView
-  components/             CredentialsModal, DropZone, ImagePreview, ...
-  stores/                 Pinia stores (notes, config, theme)
-  services/api.js         HTTP client
+  views/
+    UploadView.vue        Upload + options + Convert / Compare buttons
+    EditorView.vue        Per-image editor sections, gutter thumbnails, Download
+    CompareView.vue       Single-image fan-out across all models, "Use this model"
+  components/
+    CredentialsModal.vue  Gear icon — W&B key, entity, project, active model
+    DropZone.vue, ImagePreview.vue, OptionsForm.vue, ...
+  stores/
+    notes.js              images, results, options, customInstructions, etc.
+    config.js             status (W&B credentials), available_models
+    theme.js              dark/light toggle
+  services/api.js         processImages, processSingleImage, processCompare,
+                          captureDatasetRows, saveConfig, getConfigStatus
 ```
 
 ## Troubleshooting

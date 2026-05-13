@@ -50,6 +50,32 @@ export async function processSingleImage(image, options) {
   return data
 }
 
+export async function processCompare(image, options) {
+  const formData = new FormData()
+  formData.append('image', image.file)
+  formData.append('contains_latex', options.containsLatex)
+  formData.append('contains_diagrams', options.containsDiagrams)
+  formData.append('custom_instructions', options.customInstructions || '')
+
+  const response = await fetch(`${API_BASE}/ocr/compare`, {
+    method: 'POST',
+    body: formData
+  })
+
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throwApiError(response, data, 'Comparison failed')
+  return data
+}
+
+export async function captureDatasetRows(rows) {
+  // Fire-and-forget: errors are silently swallowed so the user's download is unaffected.
+  return fetch(`${API_BASE}/dataset/capture`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows })
+  }).catch(() => null)
+}
+
 export async function healthCheck() {
   const response = await fetch(`${API_BASE}/health`)
   return response.json()

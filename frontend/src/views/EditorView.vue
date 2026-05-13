@@ -1,19 +1,51 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNotesStore } from '../stores/notes'
 import { marked } from 'marked'
 import katex from 'katex'
 import DropZone from '../components/DropZone.vue'
-import { processSingleImage } from '../services/api'
+import { processSingleImage, captureDatasetRows } from '../services/api'
 
 const router = useRouter()
 const notesStore = useNotesStore()
 const viewMode = ref('editor')
-const editorContent = ref('')
 const documentTitle = ref('Untitled Document')
-const editorRef = ref(null)
-const previewRef = ref(null)
+const scrollRef = ref(null)
+const sectionRefs = []
+const lightboxIndex = ref(null)
+const originalOcrSnapshot = ref([])
+const imageHeights = ref({})
+let imageObserver = null
+
+function recordImageHeight(img) {
+  if (!img) return
+  const i = parseInt(img.dataset.sectionImage, 10)
+  if (Number.isNaN(i)) return
+  const h = img.clientHeight
+  if (h > 0) imageHeights.value[i] = h
+}
+
+function onImageLoad(i, e) {
+  recordImageHeight(e.target)
+  if (imageObserver) imageObserver.observe(e.target)
+}
+
+function remeasureImages() {
+  document.querySelectorAll('img[data-section-image]').forEach((img) => {
+    if (img.complete) recordImageHeight(img)
+  })
+}
+
+function setSectionRef(i, el) {
+  if (el) sectionRefs[i] = el
+}
+
+function autosize(el) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
+}
 
 function scrollRatio(el) {
   const range = el.scrollHeight - el.clientHeight
@@ -27,12 +59,13 @@ function applyScrollRatio(el, ratio) {
 
 function setViewMode(mode) {
   if (mode === viewMode.value) return
-  const outEl = viewMode.value === 'editor' ? editorRef.value : previewRef.value
-  const ratio = outEl ? scrollRatio(outEl) : 0
+  const ratio = scrollRef.value ? scrollRatio(scrollRef.value) : 0
   viewMode.value = mode
   nextTick(() => {
-    const inEl = mode === 'editor' ? editorRef.value : previewRef.value
-    if (inEl) applyScrollRatio(inEl, ratio)
+    if (scrollRef.value) applyScrollRatio(scrollRef.value, ratio)
+    if (mode === 'editor') {
+      sectionRefs.forEach(autosize)
+    }
   })
 }
 
@@ -47,14 +80,42 @@ const addOptions = ref({
 const isAddProcessing = ref(false)
 const addError = ref(null)
 
+function onGlobalKeydown(e) {
+  if (e.key === 'Escape' && lightboxIndex.value !== null) {
+    lightboxIndex.value = null
+  }
+}
+
 onMounted(() => {
   if (notesStore.results.length === 0) {
     router.push('/')
-  } else {
-    // Combine all markdown into single editor (no dividers)
-    editorContent.value = notesStore.results
-      .map(r => r.markdown)
-      .join('\n\n')
+    return
+  }
+  originalOcrSnapshot.value = notesStore.results.map(r => r.markdown)
+  document.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('resize', remeasureImages)
+
+  if (typeof ResizeObserver !== 'undefined') {
+    imageObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) recordImageHeight(entry.target)
+    })
+  }
+
+  nextTick(() => {
+    document.querySelectorAll('img[data-section-image]').forEach((img) => {
+      if (imageObserver) imageObserver.observe(img)
+      if (img.complete) recordImageHeight(img)
+    })
+    sectionRefs.forEach(autosize)
+  })
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('resize', remeasureImages)
+  if (imageObserver) {
+    imageObserver.disconnect()
+    imageObserver = null
   }
 })
 
@@ -80,17 +141,85 @@ function renderLatex(text) {
   return result
 }
 
-const renderedPreview = computed(() => {
-  if (!editorContent.value) return ''
-  const withLatex = renderLatex(editorContent.value)
-  return marked.parse(withLatex)
-})
+function renderedSection(i) {
+  const md = notesStore.results[i]?.markdown || ''
+  if (!md) return ''
+  return marked.parse(renderLatex(md))
+}
+
+function onSectionInput(i, e) {
+  notesStore.updateMarkdown(i, e.target.value)
+  autosize(e.target)
+}
+
+function onSectionKeydown(i, e) {
+  if (e.key === 'Tab') {
+    e.preventDefault()
+    const textarea = e.target
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const value = textarea.value
+    const newValue = value.substring(0, start) + '  ' + value.substring(end)
+    notesStore.updateMarkdown(i, newValue)
+    nextTick(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + 2
+      autosize(textarea)
+    })
+    return
+  }
+
+  if (e.key === 'ArrowDown') {
+    const textarea = e.target
+    const cursor = textarea.selectionStart
+    if (textarea.value.indexOf('\n', cursor) === -1) {
+      const next = sectionRefs[i + 1]
+      if (next) {
+        e.preventDefault()
+        next.focus()
+        next.selectionStart = next.selectionEnd = 0
+        next.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }
+  } else if (e.key === 'ArrowUp') {
+    const textarea = e.target
+    const cursor = textarea.selectionStart
+    if (textarea.value.lastIndexOf('\n', cursor - 1) === -1) {
+      const prev = sectionRefs[i - 1]
+      if (prev) {
+        e.preventDefault()
+        prev.focus()
+        prev.selectionStart = prev.selectionEnd = prev.value.length
+        prev.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }
+  }
+}
+
+function openLightbox(i) {
+  lightboxIndex.value = i
+}
 
 function downloadMarkdown() {
-  const blob = new Blob([editorContent.value], { type: 'text/markdown' })
+  // Capture (fire-and-forget — never blocks or fails the download)
+  const rows = notesStore.results.map((r, i) => ({
+    row_id: crypto.randomUUID(),
+    image_filename: r.filename,
+    image_base64: (r.preview || '').split(',')[1] || '',
+    markdown: r.markdown,
+    original_ocr: originalOcrSnapshot.value[i] ?? '',
+    options: {
+      contains_latex: notesStore.options.containsLatex,
+      contains_diagrams: notesStore.options.containsDiagrams,
+      custom_instructions: notesStore.customInstructions || ''
+    },
+    document_title: documentTitle.value
+  }))
+  captureDatasetRows(rows)
+
+  const combined = notesStore.results.map(r => r.markdown).join('\n\n')
+  const blob = new Blob([combined], { type: 'text/markdown' })
   const url = URL.createObjectURL(blob)
 
-  // Use document title as filename, sanitize it
   const filename = documentTitle.value.trim().replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '_') || 'notes'
 
   const link = document.createElement('a')
@@ -103,25 +232,6 @@ function downloadMarkdown() {
 
 function goBack() {
   router.push('/')
-}
-
-function handleTab(event) {
-  if (event.key === 'Tab') {
-    event.preventDefault()
-    const textarea = event.target
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-
-    const spaces = '  '
-    editorContent.value =
-      editorContent.value.substring(0, start) +
-      spaces +
-      editorContent.value.substring(end)
-
-    nextTick(() => {
-      textarea.selectionStart = textarea.selectionEnd = start + spaces.length
-    })
-  }
 }
 
 // Add Image Modal functions
@@ -177,23 +287,27 @@ async function processAddImages() {
       })
 
       if (response.success && response.results.length > 0) {
-        // Append markdown to editor
-        editorContent.value += '\n\n' + response.results[0].markdown
-
-        // Add to results for left panel display
-        notesStore.results.push({
+        const newResult = {
           ...response.results[0],
           preview: image.preview
-        })
+        }
+        notesStore.results.push(newResult)
+        originalOcrSnapshot.value.push(newResult.markdown)
       } else {
         throw new Error(response.error || 'Failed to process image')
       }
     }
 
-    // Success - close modal and reset
     showAddModal.value = false
     addImages.value = []
     addOptions.value = { containsLatex: false, containsDiagrams: false, customInstructions: '' }
+
+    await nextTick()
+    document.querySelectorAll('img[data-section-image]').forEach((img) => {
+      if (imageObserver) imageObserver.observe(img)
+      if (img.complete) recordImageHeight(img)
+    })
+    sectionRefs.forEach(autosize)
   } catch (err) {
     addError.value = err.message
   } finally {
@@ -263,33 +377,11 @@ function closeAddModal() {
       </div>
     </div>
 
-    <!-- Main content -->
-    <div style="flex: 1; display: flex; overflow: hidden;">
-      <!-- Left: Images -->
-      <div style="width: 35%; border-right: 1px solid var(--color-border); overflow-y: auto; padding: 16px;">
-        <div style="display: flex; flex-direction: column; gap: 16px;">
-          <div
-            v-for="(result, index) in notesStore.results"
-            :key="index"
-            style="border-radius: 8px; overflow: hidden; border: 1px solid var(--color-border);"
-          >
-            <img
-              :src="result.preview"
-              :alt="result.filename"
-              style="width: 100%; display: block;"
-            />
-            <div style="padding: 8px 12px; background-color: var(--color-surface); border-top: 1px solid var(--color-border);">
-              <span style="font-size: 12px; color: var(--color-text-muted);">{{ result.filename }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right: Editor or Preview -->
-      <div style="flex: 1; display: flex; flex-direction: column; padding: 16px 16px; overflow: hidden; min-width: 0;">
-        <div style="flex: 1; display: flex; flex-direction: column; gap: 12px; max-width: 1700px; width: 100%; min-height: 0; margin: 0 auto;">
-        <!-- Document Title Input (always visible) -->
-        <div>
+    <!-- Main scrollable content -->
+    <div ref="scrollRef" style="flex: 1; overflow-y: auto;">
+      <div style="max-width: 1700px; margin: 0 auto; padding: 16px 24px 96px;">
+        <!-- Document Title -->
+        <div style="margin-bottom: 20px;">
           <label style="display: block; font-size: 12px; font-weight: 500; color: var(--color-text-muted); margin-bottom: 6px;">
             Document Title
           </label>
@@ -301,25 +393,49 @@ function closeAddModal() {
           />
         </div>
 
-        <!-- Editor Mode -->
-        <textarea
-          v-show="viewMode === 'editor'"
-          ref="editorRef"
-          v-model="editorContent"
-          @keydown="handleTab"
-          style="flex: 1; width: 100%; padding: 16px; font-family: ui-monospace, monospace; font-size: 14px; line-height: 1.6; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; resize: none; outline: none; box-sizing: border-box;"
-          placeholder="Markdown content..."
-        ></textarea>
+        <!-- Sections (one per image) -->
+        <section
+          v-for="(result, i) in notesStore.results"
+          :key="result.filename + '-' + i"
+          style="display: flex; gap: 20px; margin-bottom: 16px; align-items: stretch;"
+        >
+          <!-- Gutter: sticky thumbnail -->
+          <div style="width: 560px; flex-shrink: 0;">
+            <div style="position: sticky; top: 16px;">
+              <img
+                :src="result.preview"
+                :alt="result.filename"
+                :title="result.filename"
+                :data-section-image="i"
+                @click="openLightbox(i)"
+                @load="onImageLoad(i, $event)"
+                style="width: 100%; height: auto; max-height: 85vh; object-fit: contain; cursor: zoom-in; border-radius: 6px; border: 1px solid var(--color-border); display: block; transition: opacity 150ms;"
+              />
+            </div>
+          </div>
 
-        <!-- Preview Mode -->
-        <div
-          v-show="viewMode === 'preview'"
-          ref="previewRef"
-          class="markdown-preview"
-          style="flex: 1; overflow-y: auto; padding: 16px 20px; background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary); line-height: 1.65; box-sizing: border-box;"
-          v-html="renderedPreview"
-        ></div>
-        </div>
+          <!-- Body: textarea (editor) or rendered HTML (preview) -->
+          <div style="flex: 1; min-width: 0;">
+            <textarea
+              v-show="viewMode === 'editor'"
+              :ref="(el) => setSectionRef(i, el)"
+              :value="result.markdown"
+              @input="onSectionInput(i, $event)"
+              @keydown="onSectionKeydown(i, $event)"
+              spellcheck="false"
+              placeholder="Edit OCR text..."
+              :style="{ minHeight: imageHeights[i] ? imageHeights[i] + 'px' : '75vh' }"
+              style="width: 100%; padding: 12px 14px; font-family: ui-monospace, monospace; font-size: 14px; line-height: 1.6; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 8px; resize: none; outline: none; box-sizing: border-box; overflow: hidden;"
+            ></textarea>
+            <div
+              v-show="viewMode === 'preview'"
+              class="markdown-preview"
+              v-html="renderedSection(i)"
+              :style="{ minHeight: imageHeights[i] ? imageHeights[i] + 'px' : '75vh' }"
+              style="padding: 12px 16px; background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-primary); line-height: 1.65;"
+            ></div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -335,6 +451,19 @@ function closeAddModal() {
       </svg>
       Download
     </button>
+
+    <!-- Lightbox overlay -->
+    <div
+      v-if="lightboxIndex !== null"
+      @click="lightboxIndex = null"
+      style="position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; z-index: 10000; cursor: zoom-out; padding: 24px;"
+    >
+      <img
+        :src="notesStore.results[lightboxIndex].preview"
+        :alt="notesStore.results[lightboxIndex].filename"
+        style="max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 4px;"
+      />
+    </div>
 
     <!-- Add Image Modal -->
     <div

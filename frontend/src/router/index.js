@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import UploadView from '../views/UploadView.vue'
 import EditorView from '../views/EditorView.vue'
+import CompareView from '../views/CompareView.vue'
 
 const routes = [
   {
@@ -12,6 +13,11 @@ const routes = [
     path: '/editor',
     name: 'editor',
     component: EditorView
+  },
+  {
+    path: '/compare',
+    name: 'compare',
+    component: CompareView
   }
 ]
 
