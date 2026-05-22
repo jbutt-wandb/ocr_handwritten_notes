@@ -69,6 +69,8 @@ def _process_inputs_for_trace(inputs: dict) -> dict:
 
 
 def _process_output_for_trace(response: "OCRResponse") -> list[str]:
+    if response is None:
+        return []
     return [r.markdown for r in response.results]
 
 
@@ -84,6 +86,8 @@ def _compare_inputs_for_trace(inputs: dict) -> dict:
 
 
 def _compare_output_for_trace(response: "ComparisonResponse") -> list[dict]:
+    if response is None:
+        return []
     return [{"model_id": r.model_id, "markdown": r.markdown} for r in response.results]
 
 
