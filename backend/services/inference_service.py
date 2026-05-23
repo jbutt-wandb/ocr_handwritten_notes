@@ -37,10 +37,10 @@ def resolve_model(requested: Optional[str]) -> str:
 # Resize images so the longest edge is at most this many pixels before sending.
 MAX_IMAGE_DIMENSION = 1600
 
-# Gemma 4 emits a long reasoning trace before producing the final content. The
-# OpenAI client surfaces only `message.content`, but reasoning still consumes
-# token budget, so we set a generous ceiling here.
-MAX_OUTPUT_TOKENS = 8192
+# Gemma 4 and Qwen 3.5 emit long reasoning traces before producing the final
+# content. The OpenAI client surfaces only `message.content`, but reasoning
+# still consumes token budget, so we set a generous ceiling here.
+MAX_OUTPUT_TOKENS = 32768
 
 
 def _ocr_inputs_for_trace(inputs: dict) -> dict:

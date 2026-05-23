@@ -286,16 +286,12 @@ async function processAddImages() {
         customInstructions: addOptions.value.customInstructions
       })
 
-      if (response.success && response.results.length > 0) {
-        const newResult = {
-          ...response.results[0],
-          preview: image.preview
-        }
-        notesStore.results.push(newResult)
-        originalOcrSnapshot.value.push(newResult.markdown)
-      } else {
-        throw new Error(response.error || 'Failed to process image')
+      const newResult = {
+        ...response,
+        preview: image.preview
       }
+      notesStore.results.push(newResult)
+      originalOcrSnapshot.value.push(newResult.markdown)
     }
 
     showAddModal.value = false

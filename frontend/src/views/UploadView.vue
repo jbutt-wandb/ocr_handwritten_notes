@@ -74,14 +74,14 @@ async function handleSubmit() {
     const failures = []
 
     results.forEach((result) => {
-      if (result.status === 'fulfilled' && result.value.success && result.value.results.length > 0) {
+      if (result.status === 'fulfilled') {
         allResults.push({
-          ...result.value.results[0],
+          ...result.value,
           preview: result.image.preview
         })
       } else {
         const filename = result.image.filename || `Image ${result.index + 1}`
-        const errMsg = result.reason?.message || result.value?.error || 'Unknown error'
+        const errMsg = result.reason?.message || 'Unknown error'
         failures.push({ filename, errMsg })
       }
     })
@@ -241,7 +241,7 @@ function loadTestData() {
       <button
         @click="handleCompareClick"
         :disabled="!configStore.inferenceReady"
-        :title="!configStore.inferenceReady ? 'Configure W&B credentials first' : 'Run all 3 models on a single image'"
+        :title="!configStore.inferenceReady ? 'Configure W&B credentials first' : 'Pick two models and compare their OCR on a single image'"
         :style="{
           padding: '10px 24px',
           fontSize: '15px',
