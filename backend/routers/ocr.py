@@ -39,15 +39,8 @@ def get_inference_service() -> InferenceService:
 
 
 class OCRResult(BaseModel):
-    image_index: int
     filename: str
     markdown: str
-
-
-class OCRResponse(BaseModel):
-    success: bool
-    results: list[OCRResult] = []
-    error: str | None = None
 
 
 MIME_TYPES = {
@@ -61,17 +54,16 @@ MIME_TYPES = {
 
 def _process_inputs_for_trace(inputs: dict) -> dict:
     return {
-        "image_count": len(inputs.get("images") or []),
         "contains_latex": inputs.get("contains_latex"),
         "contains_diagrams": inputs.get("contains_diagrams"),
         "custom_instructions": inputs.get("custom_instructions", ""),
     }
 
 
-def _process_output_for_trace(response: "OCRResponse") -> list[str]:
+def _process_output_for_trace(response: "OCRResult") -> str:
     if response is None:
-        return []
-    return [r.markdown for r in response.results]
+        return ""
+    return response.markdown
 
 
 def _compare_inputs_for_trace(inputs: dict) -> dict:
@@ -129,16 +121,15 @@ async def _check_prompt_injection(custom_instructions: str) -> None:
     postprocess_output=_process_output_for_trace,
 )
 async def _traced_process_ocr_request(
-    images: list[UploadFile],
+    image: UploadFile,
     contains_latex: bool,
     contains_diagrams: bool,
     custom_instructions: str,
     inference_service: InferenceService,
-) -> OCRResponse:
+) -> OCRResult:
     with weave.attributes(
         {
             "endpoint": "ocr.process",
-            "image_count": len(images),
             "contains_latex": contains_latex,
             "contains_diagrams": contains_diagrams,
             "custom_instructions_present": bool(
@@ -148,104 +139,95 @@ async def _traced_process_ocr_request(
     ):
         await _check_prompt_injection(custom_instructions)
 
-        results = []
+        logger.info(f"Processing image: {image.filename}")
 
-        for index, image in enumerate(images):
-            logger.info(f"Processing image {index + 1}/{len(images)}: {image.filename}")
+        ext = image.filename.split(".")[-1].lower() if image.filename else ""
+        if ext not in settings.allowed_extensions:
+            logger.error(f"Invalid file type: {ext}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid file type: {ext}"
+            )
 
-            ext = image.filename.split(".")[-1].lower() if image.filename else ""
-            if ext not in settings.allowed_extensions:
-                logger.error(f"Invalid file type: {ext}")
-                raise HTTPException(
-                    status_code=400, detail=f"Invalid file type: {ext}"
-                )
+        mime_type = MIME_TYPES.get(ext, "image/jpeg")
 
-            mime_type = MIME_TYPES.get(ext, "image/jpeg")
+        image_bytes = await image.read()
+        logger.info(f"Image size: {len(image_bytes) / 1024:.1f} KB")
 
-            image_bytes = await image.read()
-            logger.info(f"Image size: {len(image_bytes) / 1024:.1f} KB")
+        if len(image_bytes) > settings.max_file_size_mb * 1024 * 1024:
+            logger.error(f"File {image.filename} exceeds size limit")
+            raise HTTPException(
+                status_code=400,
+                detail=f"File {image.filename} exceeds {settings.max_file_size_mb}MB limit",
+            )
 
-            if len(image_bytes) > settings.max_file_size_mb * 1024 * 1024:
-                logger.error(f"File {image.filename} exceeds size limit")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"File {image.filename} exceeds {settings.max_file_size_mb}MB limit",
-                )
+        try:
+            logger.info(f"Sending image to W&B Inference...")
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+            markdown = await inference_service.process_image(
+                image_base64,
+                mime_type,
+                contains_latex,
+                contains_diagrams,
+                custom_instructions,
+            )
+            logger.info(f"Received response ({len(markdown)} chars)")
 
-            try:
-                logger.info(f"Sending image to W&B Inference...")
-                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-                markdown = await inference_service.process_image(
-                    image_base64,
-                    mime_type,
-                    contains_latex,
-                    contains_diagrams,
-                    custom_instructions,
-                )
-                logger.info(f"Received response for image {index + 1} ({len(markdown)} chars)")
-
-                results.append(
-                    OCRResult(
-                        image_index=index,
-                        filename=image.filename or f"image_{index}",
-                        markdown=markdown,
-                    )
-                )
-            except APIStatusError as e:
-                msg = getattr(e, "message", None) or str(e)
-                logger.error(f"W&B Inference returned {e.status_code} for image {index + 1}: {msg}")
-                raise HTTPException(
-                    status_code=e.status_code,
-                    detail={"code": "inference_error", "message": msg},
-                )
-            except APITimeoutError as e:
-                logger.error(f"W&B Inference timeout for image {index + 1}: {e}")
-                raise HTTPException(
-                    status_code=504,
-                    detail={"code": "inference_timeout", "message": f"W&B Inference timed out: {e}"},
-                )
-            except APIConnectionError as e:
-                logger.error(f"W&B Inference unreachable for image {index + 1}: {e}")
-                raise HTTPException(
-                    status_code=502,
-                    detail={"code": "inference_unreachable", "message": f"Could not reach W&B Inference: {e}"},
-                )
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.error(f"OCR processing failed for image {index + 1}: {str(e)}")
-                raise HTTPException(
-                    status_code=500,
-                    detail={"code": "ocr_failed", "message": str(e)},
-                )
-
-        return OCRResponse(success=True, results=results)
+            return OCRResult(
+                filename=image.filename or "image",
+                markdown=markdown,
+            )
+        except APIStatusError as e:
+            msg = getattr(e, "message", None) or str(e)
+            logger.error(f"W&B Inference returned {e.status_code}: {msg}")
+            raise HTTPException(
+                status_code=e.status_code,
+                detail={"code": "inference_error", "message": msg},
+            )
+        except APITimeoutError as e:
+            logger.error(f"W&B Inference timeout: {e}")
+            raise HTTPException(
+                status_code=504,
+                detail={"code": "inference_timeout", "message": f"W&B Inference timed out: {e}"},
+            )
+        except APIConnectionError as e:
+            logger.error(f"W&B Inference unreachable: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "inference_unreachable", "message": f"Could not reach W&B Inference: {e}"},
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"OCR processing failed: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail={"code": "ocr_failed", "message": str(e)},
+            )
 
 
-@router.post("/process", response_model=OCRResponse)
-async def process_images(
-    images: Annotated[list[UploadFile], File()],
+@router.post("/process", response_model=OCRResult)
+async def process_image(
+    image: Annotated[UploadFile, File()],
     contains_latex: Annotated[bool, Form()] = False,
     contains_diagrams: Annotated[bool, Form()] = False,
     custom_instructions: Annotated[str, Form()] = "",
     inference_service: InferenceService = Depends(get_inference_service),
 ):
-    logger.info(f"=== Starting OCR processing ===")
-    logger.info(f"Number of images: {len(images)}")
+    logger.info(f"=== Starting OCR processing for {image.filename} ===")
     logger.info(f"Options - LaTeX: {contains_latex}, Diagrams: {contains_diagrams}")
     if custom_instructions:
         logger.info(f"Custom instructions: {custom_instructions[:100]}...")
 
-    response = await _traced_process_ocr_request(
-        images=images,
+    result = await _traced_process_ocr_request(
+        image=image,
         contains_latex=contains_latex,
         contains_diagrams=contains_diagrams,
         custom_instructions=custom_instructions,
         inference_service=inference_service,
     )
 
-    logger.info(f"=== OCR processing complete. Processed {len(response.results)} images ===")
-    return response
+    logger.info(f"=== OCR processing complete ===")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -336,11 +318,14 @@ async def _traced_process_ocr_comparison(
     api_key: str,
     entity: Optional[str],
     project: Optional[str],
+    model_ids: list[str],
 ) -> ComparisonResponse:
+    selected = {mid: AVAILABLE_MODELS[mid] for mid in model_ids}
     with weave.attributes(
         {
             "endpoint": "ocr.compare",
-            "model_count": len(AVAILABLE_MODELS),
+            "model_count": len(selected),
+            "model_ids": list(selected.keys()),
             "filename": filename,
             "contains_latex": contains_latex,
             "contains_diagrams": contains_diagrams,
@@ -364,7 +349,7 @@ async def _traced_process_ocr_comparison(
                 contains_diagrams=contains_diagrams,
                 custom_instructions=custom_instructions,
             )
-            for model_id, model_label in AVAILABLE_MODELS.items()
+            for model_id, model_label in selected.items()
         ]
 
         results = await asyncio.gather(*tasks)
@@ -374,14 +359,28 @@ async def _traced_process_ocr_comparison(
 @router.post("/compare", response_model=ComparisonResponse)
 async def compare_models(
     image: Annotated[UploadFile, File()],
+    model_ids: Annotated[list[str], Form()],
     contains_latex: Annotated[bool, Form()] = False,
     contains_diagrams: Annotated[bool, Form()] = False,
     custom_instructions: Annotated[str, Form()] = "",
     inference_service: InferenceService = Depends(get_inference_service),
 ):
-    """Run every available W&B vision model on a single image in parallel."""
+    """Run exactly two selected W&B vision models on a single image in parallel."""
+    unique_ids = list(dict.fromkeys(model_ids))
+    if len(unique_ids) != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Comparison requires exactly two distinct model_ids.",
+        )
+    unknown = [mid for mid in unique_ids if mid not in AVAILABLE_MODELS]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown model_id(s): {', '.join(unknown)}",
+        )
+
     logger.info("=== Starting OCR comparison ===")
-    logger.info(f"Models: {list(AVAILABLE_MODELS.keys())}")
+    logger.info(f"Models: {unique_ids}")
     logger.info(f"Options - LaTeX: {contains_latex}, Diagrams: {contains_diagrams}")
 
     ext = image.filename.split(".")[-1].lower() if image.filename else ""
@@ -410,6 +409,7 @@ async def compare_models(
         api_key=creds.wandb_api_key,
         entity=creds.weave_entity,
         project=creds.weave_project,
+        model_ids=unique_ids,
     )
 
     succeeded = sum(1 for r in response.results if r.markdown)

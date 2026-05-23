@@ -12,30 +12,9 @@ function throwApiError(response, data, fallback) {
   throw err
 }
 
-export async function processImages(images, options) {
-  const formData = new FormData()
-
-  images.forEach(img => {
-    formData.append('images', img.file)
-  })
-
-  formData.append('contains_latex', options.containsLatex)
-  formData.append('contains_diagrams', options.containsDiagrams)
-  formData.append('custom_instructions', options.customInstructions || '')
-
-  const response = await fetch(`${API_BASE}/ocr/process`, {
-    method: 'POST',
-    body: formData
-  })
-
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) throwApiError(response, data, 'Processing failed')
-  return data
-}
-
 export async function processSingleImage(image, options) {
   const formData = new FormData()
-  formData.append('images', image.file)
+  formData.append('image', image.file)
   formData.append('contains_latex', options.containsLatex)
   formData.append('contains_diagrams', options.containsDiagrams)
   formData.append('custom_instructions', options.customInstructions || '')
@@ -56,6 +35,7 @@ export async function processCompare(image, options) {
   formData.append('contains_latex', options.containsLatex)
   formData.append('contains_diagrams', options.containsDiagrams)
   formData.append('custom_instructions', options.customInstructions || '')
+  ;(options.modelIds || []).forEach(id => formData.append('model_ids', id))
 
   const response = await fetch(`${API_BASE}/ocr/compare`, {
     method: 'POST',

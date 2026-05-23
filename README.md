@@ -12,7 +12,7 @@ Built with Vue 3 + FastAPI, powered by [W&B Inference](https://docs.wandb.ai/gui
 - Optional LaTeX equations and diagram descriptions
 - **Per-image editor with sticky-thumbnail gutter** — each image owns its own section, edits stay scoped to the image you're working on
 - Live Markdown editor with KaTeX math preview, click-to-zoom thumbnails, arrow-key navigation across sections
-- **Compare across all three vision models on a single image**, then promote the winner to active and continue editing — `/compare` route
+- **Compare any two of the available vision models on a single image** — pick the pair from a modal, see both OCR outputs side-by-side in a tripartite layout (image + two panes), click the image for a full-screen lightbox, then promote either model to active and continue editing — `/compare` route
 - **Dataset capture on download** — every Download click ships per-image `(image, edited_markdown, original_ocr)` rows to a Weave Dataset (`likho-ocr-captures`) for later eval / fine-tuning. Fire-and-forget; the download isn't blocked or affected
 - Pick your vision model from the gear icon — Kimi (default, fastest), Gemma, or Qwen
 - First-run credentials modal — no manual `.env` editing required
@@ -92,12 +92,12 @@ process_ocr_request                  [@weave.op — top-level wrapper]
 └── process_image                    [N children, one per image — actual W&B Inference call]
 ```
 
-For `/compare` (one image, all three models in parallel):
+For `/compare` (one image, two user-selected models in parallel):
 
 ```
-process_ocr_comparison               [@weave.op parent]
+process_ocr_comparison               [@weave.op parent — `model_ids` on weave.attributes]
 ├── preflight_custom_instructions    [only if customInstructions non-empty]
-└── process_image × 3                [one per model, asyncio.gather, tagged via weave.attributes]
+└── process_image × 2                [one per selected model, asyncio.gather, tagged via weave.attributes]
 ```
 
 Inputs and outputs on every op are post-processed before recording — only the user-controlled bits go to Weave (`image_base64`, the option bools, `custom_instructions`); the API key, raw `UploadFile` blobs, MIME types, and `self` references are stripped. The `/compare` parent op records only `image_size_kb` + a 16-char SHA256 of the image (the leaf children carry the full base64). Sidecar metadata like `endpoint`, `image_count`, `contains_latex` lives on `weave.attributes` and shows up in the attributes panel for filtering.
@@ -168,7 +168,8 @@ frontend/src/
   views/
     UploadView.vue        Upload + options + Convert / Compare buttons
     EditorView.vue        Per-image editor sections, gutter thumbnails, Download
-    CompareView.vue       Single-image fan-out across all models, "Use this model"
+    CompareView.vue       Single-image comparison across two user-selected models —
+                          picker modal, tripartite layout, image lightbox
   components/
     CredentialsModal.vue  Gear icon — W&B key, entity, project, active model
     DropZone.vue, ImagePreview.vue, OptionsForm.vue, ...
@@ -176,7 +177,7 @@ frontend/src/
     notes.js              images, results, options, customInstructions, etc.
     config.js             status (W&B credentials), available_models
     theme.js              dark/light toggle
-  services/api.js         processImages, processSingleImage, processCompare,
+  services/api.js         processSingleImage, processCompare,
                           captureDatasetRows, saveConfig, getConfigStatus
 ```
 
