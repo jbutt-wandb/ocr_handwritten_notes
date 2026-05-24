@@ -11,9 +11,10 @@ Built with Vue 3 + FastAPI, powered by [W&B Inference](https://docs.wandb.ai/gui
 - Drag and drop up to 5 images at once — they process in parallel
 - Optional LaTeX equations and diagram descriptions
 - **Per-image editor with sticky-thumbnail gutter** — each image owns its own section, edits stay scoped to the image you're working on
+- **Embed diagrams from your source images** — open the crop modal, draw a rectangle on any page, get a `![diagram-1|480](crop:c_xxxx)` reference inserted at your cursor. Per-reference resize via Obsidian-style `|W` / `|WxH` syntax, multi-page browsing in the modal, and the downloaded `.md` carries inline data-URL images so the file is self-contained
 - Live Markdown editor with KaTeX math preview, click-to-zoom thumbnails, arrow-key navigation across sections
 - **Compare any two of the available vision models on a single image** — pick the pair from a modal, see both OCR outputs side-by-side in a tripartite layout (image + two panes), click the image for a full-screen lightbox, then promote either model to active and continue editing — `/compare` route
-- **Dataset capture on download** — every Download click ships per-image `(image, edited_markdown, original_ocr)` rows to a Weave Dataset (`likho-ocr-captures`) for later eval / fine-tuning. Fire-and-forget; the download isn't blocked or affected
+- **Opt-in dataset capture on download** — a small modal asks whether to also send the page rows to your Weave Dataset (`likho-ocr-captures`). Yes → per-image `(image, edited_markdown, original_ocr)` rows ship in the background, with all markdown image tags stripped from the text so the dataset stays clean for fine-tuning. No → local download only, zero network calls
 - Pick your vision model from the gear icon — Kimi (default, fastest), Gemma, or Qwen
 - First-run credentials modal — no manual `.env` editing required
 - Every OCR call traced to your W&B project via Weave
@@ -111,9 +112,11 @@ Inputs and outputs on every op are post-processed before recording — only the 
 
 ### 4. Weave Datasets — capture (image, edited-markdown) pairs on download
 
-Every **Download** click POSTs per-image rows to `POST /api/v1/dataset/capture`. The endpoint returns `202 Accepted` immediately and writes the rows to a Weave Dataset (`likho-ocr-captures` — override via `LIKHO_DATASET_NAME`) in a FastAPI `BackgroundTask`. The frontend doesn't `await` the POST — your `.md` file arrives the same instant it always did.
+**Download** opens a small modal asking whether to also send the rows to your Weave Dataset. Default is Yes (preserves prior behavior). If you opt in, per-image rows POST to `/api/v1/dataset/capture`; the endpoint returns `202 Accepted` immediately and writes the rows to a Weave Dataset (`likho-ocr-captures` — override via `LIKHO_DATASET_NAME`) in a FastAPI `BackgroundTask`. The frontend doesn't `await` the POST — your `.md` file arrives the same instant either way.
 
-Each row carries:
+Before each row is sent, the client strips **all** markdown image tags (`![…](…)`) from the `markdown` field — both the `crop:` refs this app generates and any external images the user typed in. The dataset is meant to fine-tune a text OCR model, and image tags are noise at best in that context. The local `.md` you download is unaffected: it still inlines crops as data URLs so it's a self-contained, portable note.
+
+Each captured row carries:
 
 | Field | Purpose |
 | --- | --- |
