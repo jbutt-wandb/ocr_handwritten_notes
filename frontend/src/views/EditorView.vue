@@ -5,6 +5,8 @@ import { useNotesStore } from '../stores/notes'
 import { marked } from 'marked'
 import katex from 'katex'
 import DropZone from '../components/DropZone.vue'
+import CropModal from '../components/CropModal.vue'
+import DownloadModal from '../components/DownloadModal.vue'
 import { processSingleImage, captureDatasetRows } from '../services/api'
 
 const router = useRouter()
@@ -65,6 +67,47 @@ function setViewMode(mode) {
     if (scrollRef.value) applyScrollRatio(scrollRef.value, ratio)
     if (mode === 'editor') {
       sectionRefs.forEach(autosize)
+    }
+  })
+}
+
+// Crop Modal state
+const showCropModal = ref(false)
+const cursorState = ref({ index: 0, position: 0 })
+
+// Download Modal state
+const showDownloadModal = ref(false)
+
+function onTextareaSelect(i, e) {
+  cursorState.value = { index: i, position: e.target.selectionStart }
+}
+
+function openCropModal() {
+  // Default cursor to end of first textarea if nothing tracked yet
+  const ta = sectionRefs[0]
+  if (ta && cursorState.value.position === 0 && cursorState.value.index === 0) {
+    cursorState.value = { index: 0, position: ta.value.length }
+  }
+  showCropModal.value = true
+}
+
+function handleInsertAtCursor({ refMarkdown }) {
+  const { index, position } = cursorState.value
+  const current = notesStore.results[index]?.markdown ?? ''
+  const safePos = Math.min(Math.max(0, position), current.length)
+  const before = current.slice(0, safePos)
+  const after = current.slice(safePos)
+  // Pad with newlines if not already on a blank line, so the image renders as a block.
+  const needsLeadingNl = before.length > 0 && !before.endsWith('\n')
+  const prefix = needsLeadingNl ? '\n\n' : ''
+  const suffix = after.startsWith('\n') ? '' : '\n'
+  const inserted = prefix + refMarkdown + suffix
+  notesStore.updateMarkdown(index, before + inserted + after)
+  cursorState.value = { index, position: safePos + inserted.length }
+  nextTick(() => {
+    const ta = sectionRefs[index]
+    if (ta) {
+      autosize(ta)
     }
   })
 }
@@ -144,7 +187,7 @@ function renderLatex(text) {
 function renderedSection(i) {
   const md = notesStore.results[i]?.markdown || ''
   if (!md) return ''
-  return marked.parse(renderLatex(md))
+  return marked.parse(renderLatex(notesStore.resolveCropsForPreview(md)))
 }
 
 function onSectionInput(i, e) {
@@ -199,24 +242,35 @@ function openLightbox(i) {
   lightboxIndex.value = i
 }
 
-function downloadMarkdown() {
-  // Capture (fire-and-forget — never blocks or fails the download)
-  const rows = notesStore.results.map((r, i) => ({
-    row_id: crypto.randomUUID(),
-    image_filename: r.filename,
-    image_base64: (r.preview || '').split(',')[1] || '',
-    markdown: r.markdown,
-    original_ocr: originalOcrSnapshot.value[i] ?? '',
-    options: {
-      contains_latex: notesStore.options.containsLatex,
-      contains_diagrams: notesStore.options.containsDiagrams,
-      custom_instructions: notesStore.customInstructions || ''
-    },
-    document_title: documentTitle.value
-  }))
-  captureDatasetRows(rows)
+function openDownloadModal() {
+  showDownloadModal.value = true
+}
 
-  const combined = notesStore.results.map(r => r.markdown).join('\n\n')
+function onDownloadConfirm({ sendToDataset }) {
+  showDownloadModal.value = false
+  performDownload(sendToDataset)
+}
+
+function performDownload(sendToDataset) {
+  if (sendToDataset) {
+    // Dataset rows use the stripped markdown — no image tags reach the fine-tune set.
+    const rows = notesStore.results.map((r, i) => ({
+      row_id: crypto.randomUUID(),
+      image_filename: r.filename,
+      image_base64: (r.preview || '').split(',')[1] || '',
+      markdown: notesStore.stripImageTagsForDataset(r.markdown),
+      original_ocr: originalOcrSnapshot.value[i] ?? '',
+      options: {
+        contains_latex: notesStore.options.containsLatex,
+        contains_diagrams: notesStore.options.containsDiagrams,
+        custom_instructions: notesStore.customInstructions || ''
+      },
+      document_title: documentTitle.value
+    }))
+    captureDatasetRows(rows)
+  }
+
+  const combined = notesStore.results.map(r => notesStore.resolveCropsForDownload(r.markdown)).join('\n\n')
   const blob = new Blob([combined], { type: 'text/markdown' })
   const url = URL.createObjectURL(blob)
 
@@ -339,6 +393,19 @@ function closeAddModal() {
         >
           Add Image
         </button>
+        <button
+          v-if="notesStore.results.length >= 1"
+          @click="openCropModal"
+          style="padding: 8px 16px; font-size: 14px; border-radius: 6px; background: transparent; border: 1px solid var(--color-border); cursor: pointer; color: var(--color-text-primary); display: flex; align-items: center; gap: 6px;"
+          @mouseenter="$event.target.style.backgroundColor = 'var(--color-surface-hover)'"
+          @mouseleave="$event.target.style.backgroundColor = 'transparent'"
+          title="Crop diagrams from the source image and embed them in the markdown"
+        >
+          <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 2v14a2 2 0 002 2h14M2 6h14a2 2 0 012 2v14" />
+          </svg>
+          Add Diagrams
+        </button>
       </div>
 
       <div style="display: flex; align-items: center; gap: 4px; background-color: var(--color-bg); border-radius: 8px; padding: 4px;">
@@ -418,6 +485,9 @@ function closeAddModal() {
               :value="result.markdown"
               @input="onSectionInput(i, $event)"
               @keydown="onSectionKeydown(i, $event)"
+              @select="onTextareaSelect(i, $event)"
+              @click="onTextareaSelect(i, $event)"
+              @keyup="onTextareaSelect(i, $event)"
               spellcheck="false"
               placeholder="Edit OCR text..."
               :style="{ minHeight: imageHeights[i] ? imageHeights[i] + 'px' : '75vh' }"
@@ -437,7 +507,7 @@ function closeAddModal() {
 
     <!-- Download button (bottom right) -->
     <button
-      @click="downloadMarkdown"
+      @click="openDownloadModal"
       style="position: fixed; bottom: 24px; right: 24px; padding: 12px 24px; font-size: 15px; font-weight: 500; color: white; background-color: var(--color-accent); border: none; border-radius: 24px; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"
       @mouseenter="$event.target.style.backgroundColor = 'var(--color-accent-hover)'"
       @mouseleave="$event.target.style.backgroundColor = 'var(--color-accent)'"
@@ -448,20 +518,39 @@ function closeAddModal() {
       Download
     </button>
 
+    <!-- Crop Modal -->
+    <CropModal
+      v-if="showCropModal && notesStore.results.length > 0"
+      :pages="notesStore.results"
+      :initial-index="cursorState.index"
+      @close="showCropModal = false"
+      @insert-at-cursor="handleInsertAtCursor"
+    />
+
+    <!-- Download Modal -->
+    <DownloadModal
+      :show="showDownloadModal"
+      @confirm="onDownloadConfirm"
+      @close="showDownloadModal = false"
+    />
+
     <!-- Lightbox overlay -->
-    <div
-      v-if="lightboxIndex !== null"
-      @click="lightboxIndex = null"
-      style="position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; z-index: 10000; cursor: zoom-out; padding: 24px;"
-    >
-      <img
-        :src="notesStore.results[lightboxIndex].preview"
-        :alt="notesStore.results[lightboxIndex].filename"
-        style="max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 4px;"
-      />
-    </div>
+    <Teleport to="body">
+      <div
+        v-if="lightboxIndex !== null"
+        @click="lightboxIndex = null"
+        style="position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; z-index: 10000; cursor: zoom-out; padding: 24px;"
+      >
+        <img
+          :src="notesStore.results[lightboxIndex].preview"
+          :alt="notesStore.results[lightboxIndex].filename"
+          style="max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 4px;"
+        />
+      </div>
+    </Teleport>
 
     <!-- Add Image Modal -->
+    <Teleport to="body">
     <div
       v-if="showAddModal"
       style="position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; z-index: 9999;"
@@ -562,6 +651,7 @@ function closeAddModal() {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

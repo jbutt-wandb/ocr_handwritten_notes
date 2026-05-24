@@ -301,7 +301,7 @@ function toggleOpt(key, storeKey) {
           @click="loadTestData"
           style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 300; padding: 8px 16px; background: transparent; border: 0.5px solid #C47A1A; color: #C47A1A; cursor: pointer;"
         >
-          load test data
+          preview
         </button>
       </div>
 
