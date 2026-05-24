@@ -2,6 +2,8 @@
 
 **Turn photos of handwritten notes into clean, editable Markdown.**
 
+![Likho editor — a photo of handwritten notes on the left, rendered as clean Markdown on the right](docs/screenshots/hero-editor.jpg)
+
 *Likho (لِکھو) is Urdu for "write it."* Snap a picture of your notebook, drop it in, and Likho hands you back Markdown — equations, diagrams, and all — ready to paste into your tool of choice.
 
 Built with Vue 3 + FastAPI, powered by [W&B Inference](https://docs.wandb.ai/guides/inference/) for vision OCR, with [Weave](https://weave-docs.wandb.ai/) tracing every call so you can see exactly what the model did.
