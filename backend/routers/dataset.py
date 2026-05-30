@@ -57,6 +57,9 @@ def _append_to_dataset(rows: list[dict]) -> None:
 @router.post("/capture", status_code=202)
 async def capture(req: CaptureRequest, background: BackgroundTasks):
     creds = credential_store.get()
+    if not creds.weave_tracing_enabled:
+        logger.info("[dataset] skip — tracing disabled")
+        return {"accepted": 0}
     model_id = resolve_model(creds.model)
     enriched = [
         {

@@ -4,8 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.routers import config, dataset, ocr
 from backend.services.credentials import store as credential_store
 
-# Initialize Weave at startup if credentials are present (non-fatal if not)
-credential_store.try_init_weave()
+# Reconcile the tracing toggle at startup: sets WEAVE_DISABLED based on the
+# persisted toggle, and runs weave.init only when the toggle is on AND all
+# three credentials are present. Non-fatal if creds are missing.
+credential_store.apply_tracing_setting()
 
 app = FastAPI(
     title="OCR Notes API",

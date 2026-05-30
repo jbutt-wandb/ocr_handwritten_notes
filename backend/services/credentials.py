@@ -22,6 +22,11 @@ ENV_KEYS: dict[str, str] = {
     "model": "MODEL",
 }
 
+# Boolean field stored as a string in .env (true/false).
+BOOL_ENV_KEYS: dict[str, str] = {
+    "weave_tracing_enabled": "WEAVE_TRACING_ENABLED",
+}
+
 Source = Literal["env", "none"]
 
 
@@ -30,6 +35,7 @@ class Credentials(BaseModel):
     weave_entity: Optional[str] = None
     weave_project: Optional[str] = None
     model: Optional[str] = None
+    weave_tracing_enabled: bool = False
 
 
 class CredentialStore:
@@ -47,6 +53,7 @@ class CredentialStore:
             weave_entity=s.weave_entity,
             weave_project=s.weave_project,
             model=s.model,
+            weave_tracing_enabled=s.weave_tracing_enabled,
         )
 
     def get(self) -> Credentials:
@@ -62,11 +69,15 @@ class CredentialStore:
             }
 
     def has_inference(self) -> bool:
+        """True when we can call W&B Inference (only the API key is strictly required)."""
+        with self._lock:
+            return bool(self._creds.wandb_api_key)
+
+    def has_weave(self) -> bool:
+        """True when all three creds are present (API key + entity + project) so weave.init can run."""
         with self._lock:
             c = self._creds
             return bool(c.wandb_api_key and c.weave_entity and c.weave_project)
-
-    has_weave = has_inference
 
     def save(self, payload: dict) -> Credentials:
         """Write non-empty payload fields to .env, update os.environ, refresh state."""
@@ -84,6 +95,13 @@ class CredentialStore:
                 v = str(value).strip()
                 if not v:
                     continue
+                set_key(str(ENV_PATH), env_name, v, quote_mode="never")
+                os.environ[env_name] = v
+
+            for field, env_name in BOOL_ENV_KEYS.items():
+                if field not in payload:
+                    continue
+                v = "true" if bool(payload[field]) else "false"
                 set_key(str(ENV_PATH), env_name, v, quote_mode="never")
                 os.environ[env_name] = v
 
@@ -109,6 +127,28 @@ class CredentialStore:
         except Exception as e:
             logger.warning(f"Weave init failed: {e}")
             return str(e)
+
+    def apply_tracing_setting(self) -> Optional[str]:
+        """Reconcile WEAVE_DISABLED with the toggle, and init Weave if newly enabled.
+
+        - Toggle off: sets ``WEAVE_DISABLED=true`` so every ``@weave.op`` no-ops.
+          Weave checks this env var on each call, so this hard-stops traces even if
+          ``weave.init`` was already called earlier in this process.
+        - Toggle on: unsets ``WEAVE_DISABLED`` and runs ``try_init_weave()`` (idempotent).
+
+        Returns an optional warning string for the UI.
+        """
+        c = self.get()
+        if not c.weave_tracing_enabled:
+            os.environ["WEAVE_DISABLED"] = "true"
+            return None
+        os.environ.pop("WEAVE_DISABLED", None)
+        if not (c.wandb_api_key and c.weave_entity and c.weave_project):
+            return (
+                "Tracing is enabled but entity/project are missing; "
+                "traces will not be sent."
+            )
+        return self.try_init_weave()
 
 
 store = CredentialStore()
