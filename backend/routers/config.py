@@ -24,6 +24,7 @@ class ConfigStatus(BaseModel):
     weave_entity_source: str
     weave_project: Optional[str] = None
     weave_project_source: str
+    weave_tracing_enabled: bool
     inference_ready: bool
     model: str
     model_source: str
@@ -35,6 +36,7 @@ class ConfigUpdate(BaseModel):
     weave_entity: Optional[str] = None
     weave_project: Optional[str] = None
     model: Optional[str] = None
+    weave_tracing_enabled: Optional[bool] = None
 
 
 class ConfigSaveResponse(BaseModel):
@@ -61,6 +63,7 @@ def _build_status() -> ConfigStatus:
         weave_entity_source=sources["weave_entity"],
         weave_project=creds.weave_project,
         weave_project_source=sources["weave_project"],
+        weave_tracing_enabled=creds.weave_tracing_enabled,
         inference_ready=store.has_inference(),
         model=resolve_model(creds.model),
         model_source=sources["model"],
@@ -91,8 +94,6 @@ async def save_config(payload: ConfigUpdate, response: Response) -> ConfigSaveRe
     payload_dict = payload.model_dump(exclude_none=True)
     store.save(payload_dict)
 
-    weave_warning: Optional[str] = None
-    if store.has_weave():
-        weave_warning = store.try_init_weave()
+    weave_warning = store.apply_tracing_setting()
 
     return ConfigSaveResponse(status=_build_status(), weave_warning=weave_warning)

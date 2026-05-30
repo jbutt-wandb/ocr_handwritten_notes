@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     weave_entity: Optional[str] = Field(default=None, alias="ENTITY")
     weave_project: Optional[str] = Field(default=None, alias="PROJECT")
     model: Optional[str] = Field(default=None, alias="MODEL")
+    weave_tracing_enabled: bool = Field(default=False, alias="WEAVE_TRACING_ENABLED")
 
     class Config:
         env_file = ".env"

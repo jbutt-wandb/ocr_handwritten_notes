@@ -8,6 +8,7 @@ const wandbKey = ref('')
 const entity = ref('')
 const project = ref('')
 const selectedModel = ref('')
+const tracingEnabled = ref(false)
 const showWandb = ref(false)
 const localError = ref(null)
 
@@ -22,6 +23,7 @@ watch(
       entity.value = status.value?.weave_entity || ''
       project.value = status.value?.weave_project || ''
       selectedModel.value = status.value?.model || ''
+      tracingEnabled.value = !!status.value?.weave_tracing_enabled
       showWandb.value = false
       localError.value = null
     }
@@ -36,25 +38,30 @@ async function handleSave() {
   localError.value = null
 
   const haveKey = !!wandbKey.value.trim() || !!status.value?.wandb_configured
-  const haveEntity = !!entity.value.trim()
-  const haveProject = !!project.value.trim()
-
-  if (!haveKey || !haveEntity || !haveProject) {
-    localError.value = 'W&B API key, entity, and project are all required.'
+  if (!haveKey) {
+    localError.value = 'W&B API key is required.'
     return
   }
 
-  const payload = {}
+  if (tracingEnabled.value) {
+    const haveEntity = !!entity.value.trim()
+    const haveProject = !!project.value.trim()
+    if (!haveEntity || !haveProject) {
+      localError.value = 'Entity and project are required when tracing is enabled.'
+      return
+    }
+  }
+
+  const payload = {
+    weave_tracing_enabled: tracingEnabled.value,
+  }
   if (wandbKey.value.trim()) payload.wandb_api_key = wandbKey.value.trim()
-  if (entity.value.trim()) payload.weave_entity = entity.value.trim()
-  if (project.value.trim()) payload.weave_project = project.value.trim()
+  if (tracingEnabled.value) {
+    if (entity.value.trim()) payload.weave_entity = entity.value.trim()
+    if (project.value.trim()) payload.weave_project = project.value.trim()
+  }
   if (selectedModel.value && selectedModel.value !== status.value?.model) {
     payload.model = selectedModel.value
-  }
-
-  if (Object.keys(payload).length === 0) {
-    configStore.closeModal()
-    return
   }
 
   try {
@@ -97,8 +104,23 @@ function handleCancel() {
         </button>
       </div>
       <p style="font-size: 14px; color: var(--color-text-muted); margin: 0 0 20px 0; line-height: 1.5;">
-        Likho uses W&amp;B Inference for OCR. Your W&amp;B API key authenticates the model call and the entity/project enables Weave tracing. Values are written to your local <code style="font-family: ui-monospace, monospace;">.env</code> file (gitignored).
+        Likho uses W&amp;B Inference for OCR. Your W&amp;B API key authenticates the model call. Turn on Weave tracing to record every call to your W&amp;B project. Values are written to your local <code style="font-family: ui-monospace, monospace;">.env</code> file (gitignored).
       </p>
+
+      <!-- Tracing toggle -->
+      <div style="margin-bottom: 18px; padding: 12px 14px; background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px;">
+        <label style="display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--color-text-primary); cursor: pointer;">
+          <input
+            type="checkbox"
+            v-model="tracingEnabled"
+            style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-accent);"
+          />
+          Enable Weave tracing
+        </label>
+        <p style="font-size: 12px; color: var(--color-text-muted); margin: 6px 0 0 26px; line-height: 1.45;">
+          When off, OCR still works but no traces are sent to W&amp;B. Entity and project are only needed when this is on.
+        </p>
+      </div>
 
       <!-- Model selector -->
       <div style="margin-bottom: 18px;">
@@ -151,25 +173,27 @@ function handleCancel() {
           </button>
         </div>
 
-        <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">
-          Entity <span style="color: #f87171;">*</span>
-        </label>
-        <input
-          v-model="entity"
-          placeholder="your-wandb-entity"
-          autocomplete="off"
-          style="width: 100%; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none; box-sizing: border-box;"
-        />
+        <template v-if="tracingEnabled">
+          <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">
+            Entity <span style="color: #f87171;">*</span>
+          </label>
+          <input
+            v-model="entity"
+            placeholder="your-wandb-entity"
+            autocomplete="off"
+            style="width: 100%; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none; box-sizing: border-box;"
+          />
 
-        <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">
-          Project <span style="color: #f87171;">*</span>
-        </label>
-        <input
-          v-model="project"
-          placeholder="likho"
-          autocomplete="off"
-          style="width: 100%; padding: 10px 12px; font-size: 14px; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none; box-sizing: border-box;"
-        />
+          <label style="display: block; font-size: 13px; color: var(--color-text-primary); margin-bottom: 6px;">
+            Project <span style="color: #f87171;">*</span>
+          </label>
+          <input
+            v-model="project"
+            placeholder="likho"
+            autocomplete="off"
+            style="width: 100%; padding: 10px 12px; font-size: 14px; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none; box-sizing: border-box;"
+          />
+        </template>
       </div>
 
       <!-- Errors / warnings -->
