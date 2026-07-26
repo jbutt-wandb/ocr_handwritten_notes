@@ -23,13 +23,14 @@ CONFIG_TMP_PATH = CONFIG_PATH.with_suffix(".json.tmp")
 
 Source = Literal["file", "env", "none"]
 
-PROVIDER_FIELDS = ("openai_api_key", "anthropic_api_key", "gemini_api_key")
+PROVIDER_FIELDS = ("openai_api_key", "anthropic_api_key", "gemini_api_key", "mistral_api_key")
 
 
 class Credentials(BaseModel):
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    mistral_api_key: Optional[str] = None
 
 
 class CredentialStore:
@@ -52,6 +53,7 @@ class CredentialStore:
             "openai_api_key": settings.openai_api_key,
             "anthropic_api_key": settings.anthropic_api_key,
             "gemini_api_key": settings.gemini_api_key,
+            "mistral_api_key": settings.mistral_api_key,
         }
 
         creds_data: dict = {}

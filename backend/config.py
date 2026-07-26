@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    mistral_api_key: Optional[str] = None
 
     class Config:
         env_file = ".env"

@@ -21,12 +21,16 @@ class ConfigStatus(BaseModel):
     gemini_configured: bool
     gemini_preview: Optional[str] = None
     gemini_source: str
+    mistral_configured: bool
+    mistral_preview: Optional[str] = None
+    mistral_source: str
 
 
 class ConfigUpdate(BaseModel):
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    mistral_api_key: Optional[str] = None
 
 
 def _mask(secret: Optional[str]) -> Optional[str]:
@@ -54,6 +58,9 @@ def _build_status() -> ConfigStatus:
         gemini_configured=bool(creds.gemini_api_key),
         gemini_preview=_mask(creds.gemini_api_key),
         gemini_source=sources["gemini_api_key"],
+        mistral_configured=bool(creds.mistral_api_key),
+        mistral_preview=_mask(creds.mistral_api_key),
+        mistral_source=sources["mistral_api_key"],
     )
 
 

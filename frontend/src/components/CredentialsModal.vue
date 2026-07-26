@@ -23,7 +23,8 @@ const activeSource = computed(() => status.value?.[`${modalProvider.value}_sourc
 const placeholderForProvider = {
   openai: 'sk-...',
   anthropic: 'sk-ant-...',
-  gemini: 'AIza...'
+  gemini: 'AIza...',
+  mistral: 'mistral key…'
 }
 
 const placeholder = computed(() =>
@@ -49,12 +50,6 @@ watch(modalProvider, () => {
   showKey.value = false
   localError.value = null
 })
-
-function selectProvider(name) {
-  if (SUPPORTED_PROVIDERS.includes(name)) {
-    modalProvider.value = name
-  }
-}
 
 async function handleSave() {
   localError.value = null
@@ -101,10 +96,10 @@ function isProviderConfigured(name) {
     @click.self="!isFirstRun && handleCancel()"
   >
     <div
-      style="background-color: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 28px;"
+      style="background-color: var(--color-surface); border: 1px solid var(--color-border); max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 28px;"
     >
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-        <h2 style="font-size: 22px; font-weight: 700; color: var(--color-text-primary); margin: 0;">
+        <h2 style="font-family: 'EB Garamond', Georgia, serif; font-size: 26px; font-weight: 400; letter-spacing: 0.5px; color: var(--color-text-primary); margin: 0;">
           {{ isFirstRun ? 'Welcome to Likho' : 'Credentials' }}
         </h2>
         <button
@@ -122,48 +117,19 @@ function isProviderConfigured(name) {
           : 'Update API keys for any provider. The existing value stays unless you enter a new one.' }}
       </p>
 
-      <!-- Provider radio -->
+      <!-- Provider dropdown -->
       <div style="margin-bottom: 18px;">
-        <div style="font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">
+        <label style="display: block; font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px;">
           Provider
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <label
-            v-for="name in SUPPORTED_PROVIDERS"
-            :key="name"
-            :style="{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              padding: '10px 12px',
-              fontSize: '13px',
-              fontWeight: '500',
-              color: modalProvider === name ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
-              backgroundColor: modalProvider === name ? 'var(--color-bg)' : 'transparent',
-              border: `1px solid ${modalProvider === name ? 'var(--color-accent)' : 'var(--color-border)'}`,
-              borderRadius: '6px',
-              cursor: 'pointer',
-              userSelect: 'none'
-            }"
-          >
-            <input
-              type="radio"
-              name="provider"
-              :value="name"
-              :checked="modalProvider === name"
-              @change="selectProvider(name)"
-              style="display: none;"
-            />
-            <span>{{ PROVIDER_LABELS[name] }}</span>
-            <span
-              v-if="isProviderConfigured(name)"
-              :style="{ color: '#22c55e', fontSize: '13px', fontWeight: '700' }"
-              aria-label="Configured"
-            >✓</span>
-          </label>
-        </div>
+        </label>
+        <select
+          v-model="modalProvider"
+          style="width: 100%; padding: 10px 12px; font-size: 14px; font-family: 'Crimson Pro', Georgia, serif; background-color: var(--color-bg); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 6px; outline: none; cursor: pointer;"
+        >
+          <option v-for="name in SUPPORTED_PROVIDERS" :key="name" :value="name">
+            {{ PROVIDER_LABELS[name] }}{{ isProviderConfigured(name) ? ' ✓' : '' }}
+          </option>
+        </select>
       </div>
 
       <!-- Conditional key input -->
@@ -204,7 +170,7 @@ function isProviderConfigured(name) {
           v-if="isFirstRun"
           @click="handleSkip"
           :disabled="configStore.isLoading"
-          style="padding: 10px 16px; font-size: 14px; background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer;"
+          class="btn-likho-ghost"
         >
           Skip for now
         </button>
@@ -212,24 +178,14 @@ function isProviderConfigured(name) {
           v-else
           @click="handleCancel"
           :disabled="configStore.isLoading"
-          style="padding: 10px 16px; font-size: 14px; background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer;"
+          class="btn-likho-ghost"
         >
           Cancel
         </button>
         <button
           @click="handleSave"
           :disabled="configStore.isLoading"
-          :style="{
-            padding: '10px 20px',
-            fontSize: '14px',
-            fontWeight: '500',
-            color: 'white',
-            backgroundColor: 'var(--color-accent)',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: configStore.isLoading ? 'not-allowed' : 'pointer',
-            opacity: configStore.isLoading ? '0.6' : '1'
-          }"
+          class="btn-likho-primary"
         >
           {{ configStore.isLoading ? 'Saving…' : 'Save' }}
         </button>

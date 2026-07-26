@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from backend.config import settings
 from backend.services.credentials import store as credential_store
+from backend.services.guardrail import get_guardrail
 from backend.services.providers import (
     SUPPORTED_PROVIDERS,
     ProviderError,
@@ -18,6 +19,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ocr", tags=["OCR"])
+
+
+def _enforce_guardrail(custom_instructions: str) -> None:
+    """Run the prompt-injection check on custom instructions; raise 400 if it fails.
+
+    No-op when instructions are empty. Fails open (allows) if the scanner errors.
+    """
+    if not custom_instructions or not custom_instructions.strip():
+        return
+    verdict = get_guardrail().scan(custom_instructions)
+    if not verdict.get("passed", True):
+        logger.warning(
+            "Prompt injection detected (risk=%.3f) — rejecting request",
+            verdict.get("risk_score", 0.0),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "prompt_injection_detected",
+                "message": (
+                    "Custom instructions appear to contain a prompt-injection "
+                    "attempt. Edit and retry."
+                ),
+                "risk_score": verdict.get("risk_score", 0.0),
+            },
+        )
 
 
 class OCRResult(BaseModel):
@@ -58,6 +85,9 @@ async def process_images(
                 "message": f"Provider must be one of {SUPPORTED_PROVIDERS}, got '{provider}'.",
             },
         )
+
+    # Reject prompt-injection attempts in custom instructions before doing any work.
+    _enforce_guardrail(custom_instructions)
 
     try:
         ocr_provider = get_provider(provider, credential_store)

@@ -10,9 +10,10 @@ from backend.services.providers.base import (
     ProviderUnreachableError,
 )
 from backend.services.providers.gemini_provider import GeminiProvider
+from backend.services.providers.mistral_provider import MistralProvider
 from backend.services.providers.openai_provider import OpenAIProvider
 
-SUPPORTED_PROVIDERS = ("openai", "anthropic", "gemini")
+SUPPORTED_PROVIDERS = ("openai", "anthropic", "gemini", "mistral")
 
 
 class ProviderNotConfigured(Exception):
@@ -37,6 +38,8 @@ def get_provider(name: str, store: CredentialStore) -> OCRProvider:
         return AnthropicProvider(key)
     if name == "gemini":
         return GeminiProvider(key)
+    if name == "mistral":
+        return MistralProvider(key)
     raise ValueError(f"Unsupported provider: {name}")  # unreachable
 
 

@@ -2,12 +2,13 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { getConfigStatus, saveConfig as apiSaveConfig } from '../services/api'
 
-export const SUPPORTED_PROVIDERS = ['openai', 'anthropic', 'gemini']
+export const SUPPORTED_PROVIDERS = ['openai', 'anthropic', 'gemini', 'mistral']
 
 export const PROVIDER_LABELS = {
   openai: 'OpenAI',
   anthropic: 'Claude',
-  gemini: 'Gemini'
+  gemini: 'Gemini',
+  mistral: 'Mistral'
 }
 
 const SELECTED_PROVIDER_STORAGE_KEY = 'likho.selectedProvider'

@@ -20,21 +20,13 @@ function handleDragLeave() {
 function handleDrop(e) {
   e.preventDefault()
   isDragging.value = false
-
-  const files = Array.from(e.dataTransfer.files).filter(
-    file => allowedTypes.includes(file.type)
-  )
-
-  if (files.length > 0) {
-    emit('files-selected', files)
-  }
+  const files = Array.from(e.dataTransfer.files).filter(f => allowedTypes.includes(f.type))
+  if (files.length > 0) emit('files-selected', files)
 }
 
 function handleFileSelect(e) {
   const files = Array.from(e.target.files)
-  if (files.length > 0) {
-    emit('files-selected', files)
-  }
+  if (files.length > 0) emit('files-selected', files)
   e.target.value = ''
 }
 
@@ -44,51 +36,44 @@ function openFilePicker() {
 </script>
 
 <template>
-  <div
-    @dragover="handleDragOver"
-    @dragleave="handleDragLeave"
-    @drop="handleDrop"
-    @click="openFilePicker"
-    style="border: 2px dashed var(--color-border); border-radius: 12px; padding: 60px 32px; text-align: center; cursor: pointer; transition: all 0.2s ease;"
-    :style="{
-      borderColor: isDragging ? 'var(--color-accent)' : 'var(--color-border)',
-      backgroundColor: isDragging ? 'var(--color-accent-muted)' : 'transparent'
-    }"
-  >
-    <input
-      ref="fileInput"
-      type="file"
-      multiple
-      accept="image/jpeg,image/png,image/gif,image/webp"
-      style="display: none;"
-      @change="handleFileSelect"
-    />
+  <div style="position: relative;">
+    <!-- Corner brackets -->
+    <svg style="position:absolute;top:-1px;left:-1px;width:16px;height:16px;z-index:3" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1 8 L1 1 L8 1" stroke="#C47A1A" stroke-width="1.4"/></svg>
+    <svg style="position:absolute;top:-1px;right:-1px;width:16px;height:16px;z-index:3" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M15 8 L15 1 L8 1" stroke="#C47A1A" stroke-width="1.4"/></svg>
+    <svg style="position:absolute;bottom:-1px;left:-1px;width:16px;height:16px;z-index:3" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1 8 L1 15 L8 15" stroke="#C47A1A" stroke-width="1.4"/></svg>
+    <svg style="position:absolute;bottom:-1px;right:-1px;width:16px;height:16px;z-index:3" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M15 8 L15 15 L8 15" stroke="#C47A1A" stroke-width="1.4"/></svg>
 
-    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
-      <!-- Icon with explicit size -->
-      <svg
-        style="width: 48px; height: 48px;"
-        :style="{ color: isDragging ? 'var(--color-accent)' : 'var(--color-text-muted)' }"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="1.5"
-          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-        />
-      </svg>
+    <div
+      @dragover="handleDragOver"
+      @dragleave="handleDragLeave"
+      @drop="handleDrop"
+      @click="openFilePicker"
+      :style="{
+        border: '0.75px solid ' + (isDragging ? '#C47A1A' : '#ccc'),
+        background: isDragging ? '#F5F3EE' : '#FAFAF7',
+        padding: '36px 20px',
+        textAlign: 'center',
+        cursor: 'pointer',
+        transition: 'background 0.2s, border-color 0.2s',
+      }"
+    >
+      <input
+        ref="fileInput"
+        type="file"
+        multiple
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        style="display: none;"
+        @change="handleFileSelect"
+      />
 
-      <!-- Text -->
-      <div>
-        <p style="font-size: 16px; font-weight: 500; color: var(--color-text-primary);">
-          Drop images here or click to browse
-        </p>
-        <p style="margin-top: 8px; font-size: 14px; color: var(--color-text-muted);">
-          JPG, PNG, GIF, WebP
-        </p>
+      <div style="font-size: 20px; color: #bbb; margin-bottom: 10px;">
+        <i class="ti ti-file-upload"></i>
+      </div>
+      <div style="font-family: 'EB Garamond', Georgia, serif; font-size: 16px; font-style: italic; color: #777;">
+        Drop images here, or click to browse
+      </div>
+      <div style="margin-top: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 300; color: #bbb; letter-spacing: 0.04em;">
+        JPG · PNG · GIF · WEBP
       </div>
     </div>
   </div>
