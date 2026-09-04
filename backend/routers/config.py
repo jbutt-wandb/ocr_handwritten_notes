@@ -145,6 +145,7 @@ async def list_local_models(payload: LocalModelsRequest) -> LocalModelsResponse:
     try:
         models = [model.id async for model in client.models.list()]
     except (APITimeoutError, APIConnectionError):
+        logger.warning(f"[local] model list failed: {base_url} unreachable")
         raise HTTPException(
             status_code=502,
             detail={
@@ -153,6 +154,7 @@ async def list_local_models(payload: LocalModelsRequest) -> LocalModelsResponse:
             },
         )
     except APIStatusError as e:
+        logger.warning(f"[local] model list failed: {base_url} returned {e.status_code}")
         raise HTTPException(
             status_code=502,
             detail={
@@ -163,4 +165,5 @@ async def list_local_models(payload: LocalModelsRequest) -> LocalModelsResponse:
                 ),
             },
         )
+    logger.info(f"[local] model list ok: {len(models)} model(s) at {base_url}")
     return LocalModelsResponse(models=sorted(models))
