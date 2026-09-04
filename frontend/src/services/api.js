@@ -52,6 +52,17 @@ export async function processSingleImage(image, options) {
   return data
 }
 
+export async function fetchLocalModels({ baseUrl, apiKey }) {
+  const response = await fetch(`${API_BASE}/config/local/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base_url: baseUrl, api_key: apiKey || null })
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throwApiError(response, data, 'Could not list models')
+  return data.models
+}
+
 export async function healthCheck() {
   const response = await fetch(`${API_BASE}/health`)
   return response.json()
