@@ -102,6 +102,8 @@ ollama pull llama3.2-vision   # or qwen2.5vl
 
 Text-only models will produce empty or nonsense output. Local inference is slower than the cloud providers — the backend allows up to 5 minutes per image.
 
+Ollama's bare `qwen3-vl:*` tags are the slow *thinking* variants; use the `-instruct` tags for OCR. For vLLM, run it on a port other than 8000 (the Likho backend's port) and note that the backend requests a generous output budget — if your `--max-model-len` is too small for it, the request is automatically retried without `max_tokens` so vLLM fits the completion to its context.
+
 **Docker note:** from inside the backend container, `localhost` is the container itself. Use `http://host.docker.internal:11434/v1` to reach a server running on your host (the compose file already maps `host.docker.internal` on Linux).
 
 ## Project layout

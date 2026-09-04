@@ -2,7 +2,7 @@ import logging
 import time
 
 import httpx
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+from openai import NOT_GIVEN, APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
 from backend.prompts.ocr_prompts import build_ocr_prompt
 from backend.services.providers.base import (
@@ -22,9 +22,20 @@ REQUEST_TIMEOUT_SECONDS = 300
 # Reasoning models (e.g. Gemma 4 via Ollama) emit their thinking as a separate
 # `reasoning` field that consumes the completion budget but never reaches
 # `message.content` — even a simple page can burn 6k+ tokens of reasoning before
-# transcription starts, so give local models generous headroom. Servers with a
-# smaller context clamp (Ollama) or reject with a clear error (vLLM).
+# transcription starts, so give local models generous headroom. Ollama clamps
+# this to what fits; vLLM rejects it with a 400 instead, which we detect and
+# retry once without max_tokens (vLLM then defaults to the largest completion
+# that fits its --max-model-len).
 MAX_OUTPUT_TOKENS = 16384
+
+
+def _is_budget_rejection(e: APIStatusError) -> bool:
+    """True when the server rejected the request because max_tokens exceeds
+    its context window (vLLM behavior; Ollama clamps instead)."""
+    if e.status_code != 400:
+        return False
+    msg = (getattr(e, "message", None) or str(e)).lower()
+    return "context length" in msg or "max_tokens" in msg or "max tokens" in msg
 
 
 class LocalProvider(OCRProvider):
@@ -55,26 +66,36 @@ class LocalProvider(OCRProvider):
         custom_instructions: str = "",
     ) -> str:
         prompt = build_ocr_prompt(contains_latex, contains_diagrams, custom_instructions)
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{image_base64}",
+                        },
+                    },
+                ],
+            }
+        ]
         t0 = time.perf_counter()
         try:
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{mime_type};base64,{image_base64}",
-                                },
-                            },
-                        ],
-                    }
-                ],
-                max_tokens=MAX_OUTPUT_TOKENS,
-            )
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model, messages=messages, max_tokens=MAX_OUTPUT_TOKENS
+                )
+            except APIStatusError as e:
+                if not _is_budget_rejection(e):
+                    raise
+                logger.warning(
+                    f"[local] {self.model} rejected max_tokens={MAX_OUTPUT_TOKENS} "
+                    f"({getattr(e, 'message', None) or e}) — retrying without max_tokens"
+                )
+                response = await self.client.chat.completions.create(
+                    model=self.model, messages=messages, max_tokens=NOT_GIVEN
+                )
         except APITimeoutError as e:
             raise ProviderTimeoutError(
                 f"Your local model server at {self.base_url} timed out after "
@@ -109,10 +130,11 @@ class LocalProvider(OCRProvider):
             f"content_chars={len(markdown)} reasoning_chars={len(reasoning)})"
         )
 
+        budget = getattr(usage, "completion_tokens", None) or MAX_OUTPUT_TOKENS
         if not markdown.strip():
             if choice.finish_reason == "length":
                 raise ProviderError(
-                    f"Model '{self.model}' used its entire {MAX_OUTPUT_TOKENS}-token output "
+                    f"Model '{self.model}' used its entire {budget}-token output "
                     "budget on internal reasoning before producing any text. Try a less "
                     "verbose model, or a simpler/smaller page.",
                     status_code=502,
@@ -126,7 +148,7 @@ class LocalProvider(OCRProvider):
             )
         if choice.finish_reason == "length":
             logger.warning(
-                f"[local] {self.model} output truncated at {MAX_OUTPUT_TOKENS} tokens — "
+                f"[local] {self.model} output truncated at {budget} tokens — "
                 "transcription may be incomplete"
             )
         return clean_markdown(markdown)
