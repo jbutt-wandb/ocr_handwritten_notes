@@ -23,7 +23,25 @@ CONFIG_TMP_PATH = CONFIG_PATH.with_suffix(".json.tmp")
 
 Source = Literal["file", "env", "none"]
 
-PROVIDER_FIELDS = ("openai_api_key", "anthropic_api_key", "gemini_api_key", "mistral_api_key")
+PROVIDER_FIELDS = (
+    "openai_api_key",
+    "anthropic_api_key",
+    "gemini_api_key",
+    "mistral_api_key",
+    "local_base_url",
+    "local_model",
+    "local_api_key",
+)
+
+# Fields that must be non-empty for a provider to count as configured.
+# local_api_key is intentionally absent: most local servers don't enforce auth.
+PROVIDER_REQUIRED_FIELDS = {
+    "openai": ("openai_api_key",),
+    "anthropic": ("anthropic_api_key",),
+    "gemini": ("gemini_api_key",),
+    "mistral": ("mistral_api_key",),
+    "local": ("local_base_url", "local_model"),
+}
 
 
 class Credentials(BaseModel):
@@ -31,6 +49,9 @@ class Credentials(BaseModel):
     anthropic_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
     mistral_api_key: Optional[str] = None
+    local_base_url: Optional[str] = None
+    local_model: Optional[str] = None
+    local_api_key: Optional[str] = None
 
 
 class CredentialStore:
@@ -54,6 +75,9 @@ class CredentialStore:
             "anthropic_api_key": settings.anthropic_api_key,
             "gemini_api_key": settings.gemini_api_key,
             "mistral_api_key": settings.mistral_api_key,
+            "local_base_url": settings.local_base_url,
+            "local_model": settings.local_model,
+            "local_api_key": settings.local_api_key,
         }
 
         creds_data: dict = {}
@@ -84,14 +108,20 @@ class CredentialStore:
             return bool(self._creds.openai_api_key)
 
     def has_provider(self, provider: str) -> bool:
-        field = f"{provider}_api_key"
-        if field not in PROVIDER_FIELDS:
+        required = PROVIDER_REQUIRED_FIELDS.get(provider)
+        if not required:
             return False
         with self._lock:
-            return bool(getattr(self._creds, field, None))
+            return all(getattr(self._creds, field, None) for field in required)
 
     def get_key(self, provider: str) -> Optional[str]:
         field = f"{provider}_api_key"
+        if field not in PROVIDER_FIELDS:
+            return None
+        with self._lock:
+            return getattr(self._creds, field, None)
+
+    def get_field(self, field: str) -> Optional[str]:
         if field not in PROVIDER_FIELDS:
             return None
         with self._lock:

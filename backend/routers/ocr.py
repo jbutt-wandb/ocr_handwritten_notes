@@ -96,7 +96,7 @@ async def process_images(
             status_code=503,
             detail={
                 "code": "provider_not_configured",
-                "message": f"No API key configured for {provider}. Add one via the credentials modal.",
+                "message": f"'{provider}' is not configured. Add its credentials via the settings modal.",
             },
         )
 
