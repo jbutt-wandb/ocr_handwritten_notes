@@ -1,11 +1,11 @@
 # Likho
 
-Turn photos of handwritten notes into editable Markdown. Vue 3 frontend, FastAPI backend. Pick the OCR provider you want — **OpenAI**, **Anthropic Claude**, **Google Gemini**, or **Mistral** — and bring your own API key.
+Turn photos of handwritten notes into editable Markdown. Vue 3 frontend, FastAPI backend. Pick the OCR provider you want — **OpenAI**, **Anthropic Claude**, **Google Gemini**, **Mistral**, or a **local model server** (Ollama, LM Studio, vLLM) — and bring your own API key (or none at all for local).
 
 ## Features
 
 - Drag-and-drop up to 5 images, processed in parallel (drag thumbnails to reorder before converting)
-- Choose your OCR provider per session: OpenAI `gpt-4o`, Claude `claude-sonnet-4-6`, Gemini `gemini-2.5-flash`, or Mistral `mistral-medium-latest`
+- Choose your OCR provider per session: OpenAI `gpt-4o`, Claude `claude-sonnet-4-6`, Gemini `gemini-2.5-flash`, Mistral `mistral-medium-latest`, or any model on a local OpenAI-compatible server
 - LaTeX equations and diagram descriptions on demand, plus free-form custom instructions
 - Per-image stacked editor with sticky source-image thumbnails, a full-screen lightbox, and live KaTeX-rendered Markdown preview
 - **Add Diagrams** — crop regions out of a source page and embed them inline in the Markdown (fully client-side)
@@ -17,11 +17,12 @@ Turn photos of handwritten notes into editable Markdown. Vue 3 frontend, FastAPI
 
 - Python 3.11+ (managed via [uv](https://docs.astral.sh/uv/))
 - Node.js 18+
-- At least one API key from a supported provider:
+- At least one API key from a supported provider, or a running local model server:
   - **OpenAI** — needs `gpt-4o` access
   - **Anthropic** — needs `claude-sonnet-4-6` access
   - **Google AI Studio** — needs `gemini-2.5-flash` access
   - **Mistral** — a key from [console.mistral.ai](https://console.mistral.ai) with `mistral-medium-latest` access
+  - **Local server** — Ollama, LM Studio, vLLM, or anything OpenAI-compatible, serving a vision-capable model (no key needed)
 
 ## Quick start
 
@@ -59,7 +60,7 @@ On first launch, a credentials modal appears. Pick your provider, paste its API 
 
 ## Using the app
 
-1. **Pick a provider.** Click the gear icon in the header. The modal has a **provider dropdown** (OpenAI / Claude / Gemini / Mistral) with a ✓ next to whichever ones you've already configured. The selected provider becomes the active one for the next OCR run.
+1. **Pick a provider.** Click the gear icon in the header. The modal has a **provider dropdown** (OpenAI / Claude / Gemini / Mistral / Local server) with a ✓ next to whichever ones you've already configured. The selected provider becomes the active one for the next OCR run.
 2. **Add a key for the active provider.** Paste it into the input below the dropdown and Save. The masked current value is shown after save (`sk-...abc from file`).
 3. **Upload images.** Drag and drop up to 5 photos of handwritten notes. Drag the ⠿ handle on a thumbnail to reorder them; the order carries into the editor.
 4. **Toggle options if needed.** "LaTeX equations" turns on math transcription; "Graphs & diagrams" emits descriptive blockquotes for figures; "Custom instructions" lets you steer the model further.
@@ -79,14 +80,29 @@ Credentials can be supplied two ways. The in-app modal takes precedence over the
 **Option B — env file:** copy `.env.example` to `.env` and fill in any subset of the keys. Anything you don't set in `.env` can still be added later via the modal.
 
 ```env
-# Each is optional, but at least one must be set to run OCR.
+# Each is optional, but at least one provider must be configured to run OCR.
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 GEMINI_API_KEY=AIza...
 MISTRAL_API_KEY=...
+LOCAL_BASE_URL=http://localhost:11434/v1
+LOCAL_MODEL=llama3.2-vision
+LOCAL_API_KEY=          # only if your server enforces auth (e.g. vLLM --api-key)
 ```
 
 If both `.env` and the modal supply a key for the same provider, the modal wins (it writes to `.likho_config.json` which is loaded first).
+
+### Local models
+
+Pick **Local server** in the credentials modal to run OCR against any OpenAI-compatible server on your machine — no cloud key required. The base URL defaults to Ollama (`http://localhost:11434/v1`); LM Studio is `http://localhost:1234/v1`, vLLM is wherever you bound it. The modal fetches the server's model list automatically (doubling as a connection test) — pick a **vision-capable** model, e.g.:
+
+```bash
+ollama pull llama3.2-vision   # or qwen2.5vl
+```
+
+Text-only models will produce empty or nonsense output. Local inference is slower than the cloud providers — the backend allows up to 5 minutes per image.
+
+**Docker note:** from inside the backend container, `localhost` is the container itself. Use `http://host.docker.internal:11434/v1` to reach a server running on your host (the compose file already maps `host.docker.internal` on Linux).
 
 ## Project layout
 
@@ -106,6 +122,7 @@ backend/
       anthropic_provider.py     AsyncAnthropic + tool-use for structured output
       gemini_provider.py        google-genai + responseSchema
       mistral_provider.py       mistralai vision chat + clean_markdown
+      local_provider.py         AsyncOpenAI against a user-configured base_url
   prompts/
     ocr_prompts.py              Dynamic prompt builder
 
@@ -126,7 +143,7 @@ POST /api/v1/ocr/process
 images=...&provider=mistral&contains_latex=false&custom_instructions=...
 ```
 
-The backend first runs the **prompt-injection guardrail** on `custom_instructions` (empty → skipped; detected → `400 prompt_injection_detected`; scanner error → fails open). It then validates `provider`, looks up the matching API key from the credential store, and instantiates the corresponding `OCRProvider`. Each provider returns a single `markdown` string (via `response_format` for OpenAI, tool use for Claude, `responseSchema` for Gemini, and a plain vision-chat response cleaned of code fences for Mistral).
+The backend first runs the **prompt-injection guardrail** on `custom_instructions` (empty → skipped; detected → `400 prompt_injection_detected`; scanner error → fails open). It then validates `provider`, looks up the matching API key from the credential store, and instantiates the corresponding `OCRProvider`. Each provider returns a single `markdown` string (via `response_format` for OpenAI, tool use for Claude, `responseSchema` for Gemini, and a plain vision-chat response cleaned of code fences for Mistral and local servers).
 
 If the selected provider has no key configured, the endpoint returns `503 provider_not_configured` and the UI surfaces a hint to add one.
 
